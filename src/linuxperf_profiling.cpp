@@ -94,8 +94,8 @@ namespace adaptyst {
     std::ifstream max_stack("/proc/sys/kernel/perf_event_max_stack");
 
     if (!max_stack) {
-      adaptyst_print("Could not check the value of kernel.perf_event_max_stack!",
-                     true);
+      adaptyst_print(module_id, "Could not check the value of kernel.perf_event_max_stack!",
+                     true, true, "General");
       return false;
     }
 
@@ -105,19 +105,19 @@ namespace adaptyst {
     max_stack.close();
 
     if (max_stack_value < 1024) {
-      adaptyst_print("kernel.perf_event_max_stack is less than 1024. Adaptyst will "
+      adaptyst_print(module_id, "kernel.perf_event_max_stack is less than 1024. Adaptyst will "
                      "crash because of this, so stopping here. Please run \"sysctl "
                      "kernel.perf_event_max_stack=1024\" (or the same command with "
-                     "a number larger than 1024).", true);
+                     "a number larger than 1024).", true, true, "General");
       return false;
     } else {
       this->max_stack = max_stack_value;
-      adaptyst_print(("Note that stacks with more than " + std::to_string(max_stack_value) +
-                      " entries/entry *WILL* be broken in your results! To avoid that, run "
-                      "\"sysctl kernel.perf_event_max_stack=<larger value>\".").c_str(), false);
-      adaptyst_print("Remember that max stack values larger than 1024 are currently *NOT* "
+      adaptyst_print(module_id, ("Note that stacks with more than " + std::to_string(max_stack_value) +
+                                 " entries/entry *WILL* be broken in your results! To avoid that, run "
+                                 "\"sysctl kernel.perf_event_max_stack=<larger value>\".").c_str(), true, false, "General");
+      adaptyst_print(module_id, "Remember that max stack values larger than 1024 are currently *NOT* "
                      "supported for off-CPU stacks (they will be capped at 1024 entries).",
-                     false);
+                     true, false, "General");
     }
 
     // Done, everything's good!
@@ -132,17 +132,17 @@ namespace adaptyst {
     fs::path numa_balancing_path("/proc/sys/kernel/numa_balancing");
 
     if (!fs::exists(numa_balancing_path)) {
-      adaptyst_print("kernel.numa_balancing does not seem to exist, so assuming "
+      adaptyst_print(module_id, "kernel.numa_balancing does not seem to exist, so assuming "
                      "no NUMA on this machine. Note that if you actually have "
-                     "NUMA, you may get broken stacks!", false);
+                     "NUMA, you may get broken stacks!", true, false, "General");
       return true;
     }
 
     std::ifstream numa_balancing(numa_balancing_path);
 
     if (!numa_balancing) {
-      adaptyst_print("Could not check the value of kernel.numa_balancing!",
-                     true);
+      adaptyst_print(module_id, "Could not check the value of kernel.numa_balancing!",
+                     true, true, "General");
       return false;
     }
 
@@ -165,29 +165,29 @@ namespace adaptyst {
       }
 
       if (count > 1) {
-        adaptyst_print("NUMA balancing is enabled and Adaptyst is running on more "
-                       "than 1 NUMA node!",
-                       true);
-        adaptyst_print("As this will result in broken stacks, Adaptyst will not run.",
-                       true);
-        adaptyst_print("Please disable balancing by running \"sysctl "
+        adaptyst_print(module_id, "NUMA balancing is enabled and Adaptyst is running on more "
+                       "than 1 NUMA node!", true,
+                       true, "General");
+        adaptyst_print(module_id, "As this will result in broken stacks, Adaptyst will not run.",
+                       true, true, "General");
+        adaptyst_print(module_id, "Please disable balancing by running \"sysctl "
                        "kernel.numa_balancing=0\" or "
                        "bind Adaptyst at least memory-wise "
-                       "to a single NUMA node, e.g. through numactl.",
-                       true);
+                       "to a single NUMA node, e.g. through numactl.", true,
+                       true, "General");
         return false;
       }
 #else
-      adaptyst_print("NUMA balancing is enabled, but Adaptyst is compiled without "
+      adaptyst_print(module_id, "NUMA balancing is enabled, but Adaptyst is compiled without "
                      "libnuma support, so it cannot determine on how many NUMA nodes "
-                     "it is running!", true);
-      adaptyst_print("As this may result in broken stacks, Adaptyst will not run.",
-                     true);
-      adaptyst_print("Please disable balancing by running \"sysctl "
+                     "it is running!", true, true, "General");
+      adaptyst_print(module_id, "As this may result in broken stacks, Adaptyst will not run.",
+                     true, true, "General");
+      adaptyst_print(module_id, "Please disable balancing by running \"sysctl "
                      "kernel.numa_balancing=0\" or "
                      "recompile Adaptyst with libnuma support, followed by "
                      "binding the tool at least memory-wise "
-                     "to a single NUMA node (e.g. through numactl).", true);
+                     "to a single NUMA node (e.g. through numactl).", true, true, "General");
       return false;
 #endif
     }
@@ -303,14 +303,16 @@ namespace adaptyst {
              unsigned int buf_size,
              fs::path perf_bin_path,
              fs::path perf_python_path,
+             fs::path perf_script_path,
              PerfEvent &perf_event,
              CPUConfig &cpu_config,
              std::string name,
              CaptureMode capture_mode,
              Filter filter) : Profiler(acceptor_factory, buf_size),
-                              cpu_config(cpu_config) {
+                                          cpu_config(cpu_config) {
     this->perf_bin_path = perf_bin_path;
     this->perf_python_path = perf_python_path;
+    this->perf_script_path = perf_script_path;
     this->perf_event = perf_event;
     this->name = name;
     this->max_stack = 1024;
@@ -327,60 +329,63 @@ namespace adaptyst {
 
   void Perf::start(pid_t pid,
                    bool capture_immediately) {
-    fs::path stdout, stderr_record, stderr_script;
+    const char *log_dir = adaptyst_get_log_dir(module_id);
+    std::string node_id(adaptyst_get_node_id(module_id));
+
+    fs::path stdout(log_dir);
+    fs::path stderr_record(log_dir);
+    fs::path stderr_script(log_dir);
+
     std::vector<std::string> argv_record;
     std::vector<std::string> argv_script;
 
-    std::string script_path =
-      getenv("ADAPTYST_SCRIPT_DIR") ? getenv("ADAPTYST_SCRIPT_DIR") : ADAPTYST_SCRIPT_PATH;
-
     if (this->perf_event.name == "<thread_tree>") {
-      stdout = "perf_script_syscall_stdout.log";
-      stderr_record = "perf_record_syscall_stderr.log";
-      stderr_script = "perf_script_syscall_stderr.log";
+      stdout /= node_id + "_perf_script_syscall_stdout.log";
+      stderr_record /= node_id + "_perf_record_syscall_stderr.log";
+      stderr_script /= node_id + "_perf_script_syscall_stderr.log";
 
       argv_record = {this->perf_bin_path.string(), "record", "-o", "-",
-                     "--call-graph", "fp", "-k",
-                     "CLOCK_MONOTONIC", "--buffer-events", "1", "-e",
-                     "syscalls:sys_exit_execve,syscalls:sys_exit_execveat,"
-                     "sched:sched_process_fork,sched:sched_process_exit",
-                     "--sorted-stream", "--pid=" + std::to_string(pid)};
+        "--call-graph", "fp", "-k",
+        "CLOCK_MONOTONIC", "--buffer-events", "1", "-e",
+        "syscalls:sys_exit_execve,syscalls:sys_exit_execveat,"
+        "sched:sched_process_fork,sched:sched_process_exit",
+        "--sorted-stream", "--pid=" + std::to_string(pid)};
       argv_script = {this->perf_bin_path.string(), "script", "-i", "-", "-s",
-                     script_path + "/adaptyst-syscall-process.py",
-                     "--demangle", "--demangle-kernel",
-                     "--max-stack=" + std::to_string(this->max_stack)};
+        this->perf_script_path.string() + "/event-handler.py",
+        "--demangle", "--demangle-kernel",
+        "--max-stack=" + std::to_string(this->max_stack)};
     } else if (this->perf_event.name == "<main>") {
-      stdout = "perf_script_main_stdout.log";
-      stderr_record = "perf_record_main_stderr.log";
-      stderr_script = "perf_script_main_stderr.log";
+      stdout /= node_id + "_perf_script_main_stdout.log";
+      stderr_record /= node_id + "_perf_record_main_stderr.log";
+      stderr_script /= node_id + "_perf_script_main_stderr.log";
 
       argv_record = {this->perf_bin_path.string(), "record", "-o", "-",
-                     "--call-graph", "fp", "-k",
-                     "CLOCK_MONOTONIC", "--sorted-stream", "-e",
-                     "task-clock", "-F", this->perf_event.options[0],
-                     "--off-cpu", this->perf_event.options[1],
-                     "--buffer-events", this->perf_event.options[2],
-                     "--buffer-off-cpu-events", this->perf_event.options[3],
-                     "--pid=" + std::to_string(pid)};
+        "--call-graph", "fp", "-k",
+        "CLOCK_MONOTONIC", "--sorted-stream", "-e",
+        "task-clock", "-F", this->perf_event.options[0],
+        "--off-cpu", this->perf_event.options[1],
+        "--buffer-events", this->perf_event.options[2],
+        "--buffer-off-cpu-events", this->perf_event.options[3],
+        "--pid=" + std::to_string(pid)};
       argv_script = {this->perf_bin_path.string(), "script", "-i", "-", "-s",
-                     script_path + "/adaptyst-process.py",
-                     "--demangle", "--demangle-kernel",
-                     "--max-stack=" + std::to_string(this->max_stack)};
+        this->perf_script_path.string() + "/event-handler.py",
+        "--demangle", "--demangle-kernel",
+        "--max-stack=" + std::to_string(this->max_stack)};
     } else {
-      stdout = "perf_script_" + this->perf_event.name + "_stdout.log";
-      stderr_record = "perf_record_" + this->perf_event.name + "_stderr.log";
-      stderr_script = "perf_script_" + this->perf_event.name + "_stderr.log";
+      stdout /= node_id + "_perf_script_" + this->perf_event.name + "_stdout.log";
+      stderr_record /= node_id + "_perf_record_" + this->perf_event.name + "_stderr.log";
+      stderr_script /= node_id + "_perf_script_" + this->perf_event.name + "_stderr.log";
 
       argv_record = {this->perf_bin_path.string(), "record", "-o", "-",
-                     "--call-graph", "fp", "-k",
-                     "CLOCK_MONOTONIC", "--sorted-stream", "-e",
-                     this->perf_event.name + "/period=" + this->perf_event.options[0] + "/",
-                     "--buffer-events", this->perf_event.options[1],
-                     "--pid=" + std::to_string(pid)};
+        "--call-graph", "fp", "-k",
+        "CLOCK_MONOTONIC", "--sorted-stream", "-e",
+        this->perf_event.name + "/period=" + this->perf_event.options[0] + "/",
+        "--buffer-events", this->perf_event.options[1],
+        "--pid=" + std::to_string(pid)};
       argv_script = {this->perf_bin_path.string(), "script", "-i", "-", "-s",
-                     script_path + "/adaptyst-process.py",
-                     "--demangle", "--demangle-kernel",
-                     "--max-stack=" + std::to_string(this->max_stack)};
+        this->perf_script_path.string() + "/event-handler.py",
+        "--demangle", "--demangle-kernel",
+        "--max-stack=" + std::to_string(this->max_stack)};
     }
 
     if (this->capture_mode == KERNEL) {
@@ -414,11 +419,11 @@ namespace adaptyst {
 
     for (int i = 0; i < threads; i++) {
       acceptors.push_back(this->acceptor_factory.make_acceptor(1));
-      instrs_stream << acceptors[i]->get_connection_instructions();
+      instrs_stream << " " << acceptors[i]->get_connection_instructions();
     }
 
     this->script_proc->add_env("ADAPTYST_CONNECT",
-                               acceptors[0]->get_type() + " " +
+                               acceptors[0]->get_type() +
                                instrs_stream.str());
 
     this->script_proc->set_redirect_stdout(stdout);
@@ -439,15 +444,15 @@ namespace adaptyst {
         int status = waitpid(pid, nullptr, WNOHANG);
 
         if (status == 0) {
-          adaptyst_print(("Profiler \"" + this->get_name() + "\" (perf-record) has "
-                          "returned non-zero exit code " + std::to_string(code) + ". "
-                          "Terminating the profiled command wrapper.").c_str(), true);
+          adaptyst_print(module_id, ("Profiler \"" + this->get_name() + "\" (perf-record) has "
+                                     "returned non-zero exit code " + std::to_string(code) + ". "
+                                     "Terminating the profiled command wrapper.").c_str(), true, true, "General");
           kill(pid, SIGTERM);
         } else {
-          adaptyst_print(("Profiler \"" + this->get_name() + "\" (perf-record) "
-                          "has returned non-zero exit code " + std::to_string(code) + " "
-                          "and the profiled command "
-                          "wrapper is no longer running.").c_str(), true);
+          adaptyst_print(module_id, ("Profiler \"" + this->get_name() + "\" (perf-record) "
+                                     "has returned non-zero exit code " + std::to_string(code) + " "
+                                     "and the profiled command "
+                                     "wrapper is no longer running.").c_str(), true, true, "General");
         }
 
         std::string hint = "Hint: perf-record wrapper has returned exit "
@@ -456,19 +461,19 @@ namespace adaptyst {
 
         switch (code) {
         case Process::ERROR_STDOUT:
-          adaptyst_print((hint + "creating stdout log file.").c_str(), true);
+          adaptyst_print(module_id, (hint + "creating stdout log file.").c_str(), true, true, "General");
           break;
 
         case Process::ERROR_STDERR:
-          adaptyst_print((hint + "creating stderr log file.").c_str(), true);
+          adaptyst_print(module_id, (hint + "creating stderr log file.").c_str(), true, true, "General");
           break;
 
         case Process::ERROR_STDOUT_DUP2:
-          adaptyst_print((hint + "redirecting stdout to perf-script.").c_str(), true);
+          adaptyst_print(module_id, (hint + "redirecting stdout to perf-script.").c_str(), true, true, "General");
           break;
 
         case Process::ERROR_STDERR_DUP2:
-          adaptyst_print((hint + "redirecting stderr to file.").c_str(), true);
+          adaptyst_print(module_id, (hint + "redirecting stderr to file.").c_str(), true, true, "General");
           break;
         }
 
@@ -482,15 +487,15 @@ namespace adaptyst {
         int status = waitpid(pid, nullptr, WNOHANG);
 
         if (status == 0) {
-          adaptyst_print(("Profiler \"" + this->get_name() + "\" (perf-script) "
-                          "has returned non-zero exit code " + std::to_string(code) + ". "
-                          "Terminating the profiled command wrapper.").c_str(), true);
+          adaptyst_print(module_id, ("Profiler \"" + this->get_name() + "\" (perf-script) "
+                                     "has returned non-zero exit code " + std::to_string(code) + ". "
+                                     "Terminating the profiled command wrapper.").c_str(), true, true, "General");
           kill(pid, SIGTERM);
         } else {
-          adaptyst_print(("Profiler \"" + this->get_name() + "\" (perf-script) "
-                          "has returned non-zero exit code " + std::to_string(code) + " "
-                          "and the profiled command "
-                          "wrapper is no longer running.").c_str(), true);
+          adaptyst_print(module_id, ("Profiler \"" + this->get_name() + "\" (perf-script) "
+                                     "has returned non-zero exit code " + std::to_string(code) + " "
+                                     "and the profiled command "
+                                     "wrapper is no longer running.").c_str(), true, true, "General");
         }
 
         std::string hint = "Hint: perf-script wrapper has returned exit "
@@ -499,24 +504,24 @@ namespace adaptyst {
 
         switch (code) {
         case Process::ERROR_STDOUT:
-          adaptyst_print((hint + "creating stdout log file.").c_str(), true);
+          adaptyst_print(module_id, (hint + "creating stdout log file.").c_str(), true, true, "General");
           break;
 
         case Process::ERROR_STDERR:
-          adaptyst_print((hint + "creating stderr log file.").c_str(), true);
+          adaptyst_print(module_id, (hint + "creating stderr log file.").c_str(), true, true, "General");
           break;
 
         case Process::ERROR_STDOUT_DUP2:
-          adaptyst_print((hint + "redirecting stdout to file.").c_str(), true);
+          adaptyst_print(module_id, (hint + "redirecting stdout to file.").c_str(), true, true, "General");
           break;
 
         case Process::ERROR_STDERR_DUP2:
-          adaptyst_print((hint + "redirecting stderr to file.").c_str(), true);
+          adaptyst_print(module_id, (hint + "redirecting stderr to file.").c_str(), true, true, "General");
           break;
 
         case Process::ERROR_STDIN_DUP2:
-          adaptyst_print((hint + "replacing stdin with perf-record pipe output.").c_str(),
-                         true);
+          adaptyst_print(module_id, (hint + "replacing stdin with perf-record pipe output.").c_str(),
+                         true, true, "General");
           break;
         }
       }
@@ -546,22 +551,19 @@ namespace adaptyst {
         allowdenylist_json["data"] = nlohmann::json::object();
         allowdenylist_json["data"]["type"] = "allow";
         allowdenylist_json["data"]["mark"] = this->filter.mark;
-        allowdenylist_json["data"]["conditions"] =
-          std::get<std::vector<std::vector<std::string> > >(this->filter.data);
+        allowdenylist_json["data"]["conditions"] = this->filter.data;
       } else if (this->filter.mode == DENY) {
         allowdenylist_json["type"] = "filter_settings";
         allowdenylist_json["data"] = nlohmann::json::object();
         allowdenylist_json["data"]["type"] = "deny";
         allowdenylist_json["data"]["mark"] = this->filter.mark;
-        allowdenylist_json["data"]["conditions"] =
-          std::get<std::vector<std::vector<std::string> > >(this->filter.data);
+        allowdenylist_json["data"]["conditions"] = this->filter.data;
       } else if (this->filter.mode == PYTHON) {
         allowdenylist_json["type"] = "filter_settings";
         allowdenylist_json["data"] = nlohmann::json::object();
         allowdenylist_json["data"]["type"] = "python";
         allowdenylist_json["data"]["mark"] = this->filter.mark;
-        allowdenylist_json["data"]["script"] =
-          std::get<fs::path>(this->filter.data);
+        allowdenylist_json["data"]["script"] = this->filter.script_path;
       }
 
       this->connections[0]->write(allowdenylist_json.dump());
@@ -572,9 +574,9 @@ namespace adaptyst {
 
   unsigned int Perf::get_thread_count() {
     if (this->perf_event.name == "<thread_tree>") {
-      return 1;
+      return 2;
     } else {
-      return this->cpu_config.get_profiler_thread_count();
+      return this->cpu_config.get_profiler_thread_count() + 1;
     }
   }
 

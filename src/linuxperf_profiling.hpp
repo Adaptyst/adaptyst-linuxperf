@@ -36,6 +36,8 @@ namespace adaptyst {
     virtual bool check_internal() = 0;
 
   public:
+    virtual ~Requirement() = default;
+
     /**
        Gets the name of the requirement (e.g. for diagnostic purposes).
     */
@@ -132,7 +134,7 @@ namespace adaptyst {
       this->buf_size = buf_size;
     }
 
-    virtual ~Profiler() { }
+    virtual ~Profiler() = default;
 
     /**
        Gets the name of this profiler instance.
@@ -249,16 +251,18 @@ namespace adaptyst {
       NONE
     };
 
-    struct Filter {
+    class Filter {
+    public:
       FilterMode mode;
       bool mark;
-      std::variant<fs::path,
-                   std::vector<std::vector<std::string> > > data;
+      std::string script_path;
+      std::vector<std::vector<std::string> > data;
     };
 
   private:
     fs::path perf_bin_path;
     fs::path perf_python_path;
+    fs::path perf_script_path;
     std::future<int> process;
     PerfEvent perf_event;
     CPUConfig &cpu_config;
@@ -276,6 +280,7 @@ namespace adaptyst {
          unsigned int buf_size,
          fs::path perf_bin_path,
          fs::path perf_python_path,
+         fs::path perf_script_path,
          PerfEvent &perf_event,
          CPUConfig &cpu_config,
          std::string name,
