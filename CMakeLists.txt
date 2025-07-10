@@ -5,7 +5,7 @@ project(adaptyst-linuxperf
 option(PERF "Compile patched \"perf\"" ON)
 option(ROOFLINE "Compile adaptyst-linuxperf with cache-aware roofline support (requires GCC)" ON)
 set(PERF_TAG "dev-20250408" CACHE STRING "Patched \"perf\" git tag which should be used for setting up \"perf\"")
-set(ADAPTYST_MODULE_PATH "/opt/adaptyst" CACHE STRING "Path where Adaptyst modules are installed")
+set(ADAPTYST_MODULE_PATH "/opt/adaptyst/modules" CACHE STRING "Path where Adaptyst modules are installed")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,7 +18,7 @@ add_library(linuxperf SHARED
   src/linuxperf.cpp
   src/linuxperf_profiling.cpp)
 
-target_compile_definitions(linuxperf PRIVATE ADAPTYST_MODULE_PATH="${ADAPTYST_MODULE_PATH}")
+target_compile_definitions(linuxperf PRIVATE ADAPTYST_MODULE_PATH="${ADAPTYST_MODULE_PATH}/linuxperf")
 
 if(ROOFLINE)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -55,8 +55,11 @@ if(PERF)
       INSTALL_COMMAND "")
   endif()
 
-  install(DIRECTORY ${CMAKE_BINARY_DIR}/perf-install/ DESTINATION ${ADAPTYST_MODULE_PATH}/perf USE_SOURCE_PERMISSIONS)
+  install(DIRECTORY ${CMAKE_BINARY_DIR}/perf-install/ DESTINATION ${ADAPTYST_MODULE_PATH}/linuxperf/perf USE_SOURCE_PERMISSIONS)
 endif()
 
-install(TARGETS linuxperf LIBRARY DESTINATION ${ADAPTYST_MODULE_PATH})
-install(FILES src/scripts/*.py DESTINATION ${ADAPTYST_MODULE_PATH})
+install(TARGETS linuxperf LIBRARY DESTINATION ${ADAPTYST_MODULE_PATH}/linuxperf)
+install(FILES
+  src/scripts/event-handler.py
+  src/scripts/cxxfilt.py
+  DESTINATION ${ADAPTYST_MODULE_PATH}/linuxperf)

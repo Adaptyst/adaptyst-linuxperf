@@ -135,6 +135,7 @@ volatile const char *capture_mode_default = "user";
 
 volatile const char *perf_path_help = "";
 volatile const option_type perf_path_type = STRING;
+volatile const char *perf_path_default = ADAPTYST_MODULE_PATH "/perf";
 
 volatile const char *perf_script_path_help = "";
 volatile const option_type perf_script_path_type = STRING;
