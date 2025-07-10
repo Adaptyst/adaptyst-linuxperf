@@ -24,7 +24,7 @@ if(ROOFLINE)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_definitions(linuxperf PRIVATE ADAPTYST_ROOFLINE)
   else()
-    message(FATAL_ERROR "Cache-aware roofline support requires Adaptyst to be compiled with GCC. Change your compiler or set ROOFLINE to OFF.")
+    message(FATAL_ERROR "Cache-aware roofline support requires adaptyst-linuxperf to be compiled with GCC. Change your compiler or set ROOFLINE to OFF.")
   endif()
 endif()
 
