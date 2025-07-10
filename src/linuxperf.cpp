@@ -1024,7 +1024,7 @@ public:
       bool requirements_fulfilled = true;
       std::string last_requirement = "";
 
-      std::vector<std::pair<std::unique_ptr<Profiler>, Path &> > profilers;
+      std::vector<std::pair<std::unique_ptr<Profiler>, Path> > profilers;
 
       PerfEvent main(this->freq,
                      this->off_cpu_freq,
