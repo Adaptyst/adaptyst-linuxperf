@@ -15,6 +15,8 @@
 #define ADAPTYST_MODULE_ENTRYPOINT
 #include <adaptyst/hw.h>
 
+volatile const char *version = "0.1.0-dev.2025.09a";
+
 volatile const char *options[] = {
   "buffer_size",
   "warmup",
@@ -77,7 +79,7 @@ volatile const unsigned int buffer_default = 1;
 volatile const char *off_cpu_freq_help =
   "Sampling frequency "
   "per second for off-CPU time profiling "
-  "(0 disables off-CPU profiling, -1 makes Adaptyst "
+  "(0 disables off-CPU profiling, -1 makes linuxperf "
   "capture *all* off-CPU events) (default: 1000)";
 volatile const option_type off_cpu_freq_type = INT;
 volatile const int off_cpu_freq_default = 1000;
@@ -133,13 +135,17 @@ volatile const char *capture_mode_help =
 volatile const option_type capture_mode_type = STRING;
 volatile const char *capture_mode_default = "user";
 
-volatile const char *perf_path_help = "";
+volatile const char *perf_path_help =
+  "Path to the patched \"perf\" installation. Change it only "
+  "if you know what you’re doing.";
 volatile const option_type perf_path_type = STRING;
-volatile const char *perf_path_default = ADAPTYST_MODULE_PATH "/perf";
+volatile const char *perf_path_default = MODULE_PATH "/perf";
 
-volatile const char *perf_script_path_help = "";
+volatile const char *perf_script_path_help =
+  "Path to the linuxperf scripts interacting with \"perf\". Change "
+  "it only if you know what you’re doing.";
 volatile const option_type perf_script_path_type = STRING;
-volatile const char *perf_script_path_default = ADAPTYST_MODULE_PATH;
+volatile const char *perf_script_path_default = MODULE_PATH;
 
 #if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
 volatile const char *roofline_help =
@@ -149,11 +155,16 @@ volatile const char *roofline_help =
 volatile const option_type roofline_type = UNSIGNED_INT;
 volatile const unsigned int roofline_default = 0;
 
-volatile const char *roofline_benchmark_path_help = "";
+volatile const char *roofline_benchmark_path_help =
+  "Path to the cache-aware roofline benchmarking results "
+  "produced by the CARM Tool. Either this option or carm_tool_path "
+  "must be set if roofline > 0.";
 volatile const option_type roofline_benchmark_path_type = STRING;
 volatile const char *roofline_benchmark_path_default = "";
 
-volatile const char *carm_tool_path_help = "";
+volatile const char *carm_tool_path_help =
+  "Path to the CARM Tool cloned repository. Either this option or "
+  "roofline_benchmark_path must be set if roofline > 0.";
 volatile const option_type carm_tool_path_type = STRING;
 volatile const char *carm_tool_path_default = "";
 #endif
@@ -1014,6 +1025,8 @@ public:
 
     this->perf_script_path = perf_script_path;
 
+    adaptyst_set_will_profile(module_id, true);
+
     return true;
   }
 
@@ -1034,7 +1047,7 @@ public:
       PerfEvent syscall_tree;
 
       PipeAcceptor::Factory generic_acceptor_factory;
-      Path node_dir(adaptyst_get_node_dir(module_id));
+      Path module_dir(adaptyst_get_module_dir(module_id));
 
       profilers.push_back({std::make_unique<Perf>(generic_acceptor_factory,
                                                   this->buf_size,
@@ -1045,9 +1058,9 @@ public:
                                                   this->cpu_config,
                                                   "Thread tree profiler",
                                                   this->capture_mode,
-                                                  this->filter), node_dir});
+                                                  this->filter), module_dir});
 
-      Path walltime_dir = node_dir / "walltime";
+      Path walltime_dir = module_dir / "walltime";
       walltime_dir.set_metadata<std::string>("title", "Wall time");
       walltime_dir.set_metadata<std::string>("unit", "ns");
 
@@ -1062,7 +1075,7 @@ public:
                                                   this->filter), walltime_dir});
 
       for (auto &event : this->events) {
-        Path metric_dir = node_dir / event.get_name();
+        Path metric_dir = module_dir / event.get_name();
         metric_dir.set_metadata<std::string>("title",
                                              event.get_human_title());
         metric_dir.set_metadata<std::string>("unit",
@@ -1085,7 +1098,7 @@ public:
 
         try {
           if (!fs::copy_file(this->roofline_benchmark_path,
-                        fs::path(adaptyst_get_node_dir(module_id)) / "roofline.csv",
+                        fs::path(adaptyst_get_module_dir(module_id)) / "roofline.csv",
                              fs::copy_options::overwrite_existing)) {
             adaptyst_set_error(module_id, "Could not copy the roofline benchmarking results: "
                                            "std::filesystem::copy_file returned false");
@@ -1253,7 +1266,7 @@ public:
       }
 
       {
-        fs::path sources_file_path = fs::path(adaptyst_get_node_dir(module_id)) / "sources.json";
+        fs::path sources_file_path = fs::path(adaptyst_get_module_dir(module_id)) / "sources.json";
         std::ofstream sources_file(sources_file_path);
 
         if (!sources_file) {

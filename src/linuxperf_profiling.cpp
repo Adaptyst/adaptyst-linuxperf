@@ -330,7 +330,6 @@ namespace adaptyst {
   void Perf::start(pid_t pid,
                    bool capture_immediately) {
     const char *log_dir = adaptyst_get_log_dir(module_id);
-    std::string node_id(adaptyst_get_node_id(module_id));
 
     fs::path stdout(log_dir);
     fs::path stderr_record(log_dir);
@@ -340,9 +339,9 @@ namespace adaptyst {
     std::vector<std::string> argv_script;
 
     if (this->perf_event.name == "<thread_tree>") {
-      stdout /= node_id + "_perf_script_syscall_stdout.log";
-      stderr_record /= node_id + "_perf_record_syscall_stderr.log";
-      stderr_script /= node_id + "_perf_script_syscall_stderr.log";
+      stdout /= "perf_script_syscall_stdout.log";
+      stderr_record /= "perf_record_syscall_stderr.log";
+      stderr_script /= "perf_script_syscall_stderr.log";
 
       argv_record = {this->perf_bin_path.string(), "record", "-o", "-",
         "--call-graph", "fp", "-k",
@@ -355,9 +354,9 @@ namespace adaptyst {
         "--demangle", "--demangle-kernel",
         "--max-stack=" + std::to_string(this->max_stack)};
     } else if (this->perf_event.name == "<main>") {
-      stdout /= node_id + "_perf_script_main_stdout.log";
-      stderr_record /= node_id + "_perf_record_main_stderr.log";
-      stderr_script /= node_id + "_perf_script_main_stderr.log";
+      stdout /= "perf_script_main_stdout.log";
+      stderr_record /= "perf_record_main_stderr.log";
+      stderr_script /= "perf_script_main_stderr.log";
 
       argv_record = {this->perf_bin_path.string(), "record", "-o", "-",
         "--call-graph", "fp", "-k",
@@ -372,9 +371,9 @@ namespace adaptyst {
         "--demangle", "--demangle-kernel",
         "--max-stack=" + std::to_string(this->max_stack)};
     } else {
-      stdout /= node_id + "_perf_script_" + this->perf_event.name + "_stdout.log";
-      stderr_record /= node_id + "_perf_record_" + this->perf_event.name + "_stderr.log";
-      stderr_script /= node_id + "_perf_script_" + this->perf_event.name + "_stderr.log";
+      stdout /= "perf_script_" + this->perf_event.name + "_stdout.log";
+      stderr_record /= "perf_record_" + this->perf_event.name + "_stderr.log";
+      stderr_script /= "perf_script_" + this->perf_event.name + "_stderr.log";
 
       argv_record = {this->perf_bin_path.string(), "record", "-o", "-",
         "--call-graph", "fp", "-k",
