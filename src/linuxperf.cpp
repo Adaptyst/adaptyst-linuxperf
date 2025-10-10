@@ -15,7 +15,11 @@
 #define ADAPTYST_MODULE_ENTRYPOINT
 #include <adaptyst/hw.h>
 
-volatile const char *version = "0.1.0-dev.2025.09a";
+volatile const char *name = "linuxperf";
+volatile const char *version = "0.1.0-dev.2025.10a";
+volatile int version_nums[] = {0, 1, 0, 1, -1};
+
+volatile const unsigned int max_count_per_entity = 1;
 
 volatile const char *options[] = {
   "buffer_size",
