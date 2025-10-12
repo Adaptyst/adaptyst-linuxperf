@@ -463,10 +463,6 @@ private:
 
             Path pid_tid_dir = dir / pid / tid;
 
-            if (callchain.empty()) {
-              callchain.push_back(std::make_pair("(just thread/process)", ""));
-            }
-
             if (event_type == "offcpu-time") {
               Array<std::pair<
                 unsigned long long, unsigned long long> > offcpu(pid_tid_dir, "offcpu");

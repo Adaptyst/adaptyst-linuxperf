@@ -325,6 +325,9 @@ def process_event(param_dict):
 
         callchain = callchain[::-1]
 
+    if len(callchain) == 0:
+        callchain.append((symbol_dict[('(just thread/process)', '')], ''))
+
     write(event_stream_dict[pid][tid], json.dumps({
         'type': 'sample',
         'data': {
