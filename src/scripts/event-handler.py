@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 CERN
+# SPDX-License-Identifier: GPL-2.0-only
+
 # This script uses the perf-script Python API.
 # See the man page for perf-script-python for learning how the API works.
 

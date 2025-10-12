@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 CERN
+# SPDX-License-Identifier: GPL-2.0-only
+
 cmake_minimum_required(VERSION 3.20)
 project(adaptyst-linuxperf
   DESCRIPTION "The CPU Linux-perf-based hardware module for Adaptyst")

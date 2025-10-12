@@ -1,7 +1,5 @@
-# From https://github.com/afq984/python-cxxfilt/blob/master/cxxfilt/__init__.py
-# with modifications
-# Licensed under: https://github.com/afq984/python-cxxfilt/blob/master/LICENSE
-# (covered by GNU GPL v2 here)
+# SPDX-FileCopyrightText: 2017 Li-Yu Yu and 2025 CERN
+# SPDX-License-Identifier: BSD-2-Clause
 
 import abc
 import ctypes

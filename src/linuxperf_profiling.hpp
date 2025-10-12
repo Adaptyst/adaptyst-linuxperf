@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 CERN
+// SPDX-License-Identifier: GPL-2.0-only
+
 #ifndef LINUXPERF_PROFILING_HPP_
 #define LINUXPERF_PROFILING_HPP_
 
