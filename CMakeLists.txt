@@ -25,6 +25,17 @@ add_library(linuxperf SHARED
 
 target_compile_definitions(linuxperf PRIVATE MODULE_PATH="${INSTALL_PATH}/linuxperf")
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(NUMA numa)
+if(NUMA_FOUND)
+  message(STATUS "Found libnuma: ${NUMA_LINK_LIBRARIES}  ${NUMA_INCLUDE_DIRS}")
+  target_compile_definitions(linuxperf PRIVATE LIBNUMA_AVAILABLE)
+  target_include_directories(linuxperf PRIVATE ${NUMA_INCLUDE_DIRS})
+  target_link_libraries(linuxperf PUBLIC ${NUMA_LINK_LIBRARIES})
+else()
+  message(STATUS "numa not found, compiling without libnuma support")
+endif()
+
 if(ROOFLINE)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_definitions(linuxperf PRIVATE ADAPTYST_ROOFLINE)
