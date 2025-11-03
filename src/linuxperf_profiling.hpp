@@ -17,6 +17,9 @@
 #include <future>
 #include <adaptyst/socket.hpp>
 #include <adaptyst/process.hpp>
+#include <adaptyst/amod_t.h>
+
+extern amod_t module_id;
 
 namespace adaptyst {
   namespace fs = std::filesystem;
