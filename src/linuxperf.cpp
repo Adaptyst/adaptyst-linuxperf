@@ -19,8 +19,8 @@
 #include <adaptyst/hw.h>
 
 volatile const char *name = "linuxperf";
-volatile const char *version = "0.1.0-dev.2025.10a";
-volatile int version_nums[] = {0, 1, 0, 1, -1};
+volatile const char *version = "0.1.0-dev.2025.11a";
+volatile int version_nums[] = {0, 1, 0, 2, -1};
 
 volatile const unsigned int max_count_per_entity = 1;
 
@@ -52,12 +52,11 @@ volatile const char *tags[] = {
 };
 
 volatile const char *log_types[] {
-  "Non-general",
   NULL
 };
 
 volatile const char *buffer_size_help =
-    "Internal communication buffer size in bytes (default: 1024)";
+  "Internal communication buffer size in bytes (default: 1024)";
 volatile const option_type buffer_size_type = UNSIGNED_INT;
 volatile const unsigned int buffer_size_default = 1024;
 
@@ -204,6 +203,7 @@ private:
   fs::path perf_script_path;
   unsigned long long profile_start;
   bool profile_start_set = false;
+  amod_t module_id;
 #if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
   unsigned int roofline_freq;
   fs::path roofline_benchmark_path;
@@ -337,26 +337,26 @@ private:
           nlohmann::json parsed = nlohmann::json::parse(line);
 
           if (!parsed.is_object()) {
-            adaptyst_print(module_id, ("Message received from profiler \"" +
-                                       profiler->get_name() + "\" "
-                                       "is not a JSON object, ignoring.").c_str(), true, false, "General");
+            adaptyst_print(this->module_id, ("Message received from profiler \"" +
+                                             profiler->get_name() + "\" "
+                                             "is not a JSON object, ignoring.").c_str(), true, false, "General");
             continue;
           }
 
           if (parsed.size() != 2 || !parsed.contains("type") ||
               !parsed.contains("data")) {
-            adaptyst_print(module_id, ("Message received from profiler \"" +
-                                       profiler->get_name() + "\" "
-                                       "is not a JSON object with exactly 2 elements (\"type\" and "
-                                       "\"data\"), ignoring.").c_str(), true, false, "General");
+            adaptyst_print(this->module_id, ("Message received from profiler \"" +
+                                             profiler->get_name() + "\" "
+                                             "is not a JSON object with exactly 2 elements (\"type\" and "
+                                             "\"data\"), ignoring.").c_str(), true, false, "General");
           }
 
           if (parsed["type"] == "missing_symbol_maps") {
             if (!parsed["data"].is_array()) {
-              adaptyst_print(module_id, ("Message received from profiler \"" +
-                                         profiler->get_name() + "\" "
-                                         "is a JSON object of type \"missing_symbol_maps\", but its \"data\" "
-                                         "element is not a JSON array, ignoring.").c_str(), true, false, "General");
+              adaptyst_print(this->module_id, ("Message received from profiler \"" +
+                                               profiler->get_name() + "\" "
+                                               "is a JSON object of type \"missing_symbol_maps\", but its \"data\" "
+                                               "element is not a JSON array, ignoring.").c_str(), true, false, "General");
               continue;
             }
 
@@ -365,40 +365,44 @@ private:
               index++;
 
               if (!elem.is_string()) {
-                adaptyst_print(module_id, ("Element " + std::to_string(index) +
-                                           " in the array in the message "
-                                           "of type \"missing_symbol_maps\" received from profiler \"" +
-                                           profiler->get_name() +
-                                           "\" is not a string, ignoring this element.").c_str(), true, false, "General");
+                adaptyst_print(this->module_id, ("Element " + std::to_string(index) +
+                                                 " in the array in the message "
+                                                 "of type \"missing_symbol_maps\" received from profiler \"" +
+                                                 profiler->get_name() +
+                                                 "\" is not a string, ignoring this element.").c_str(), true, false, "General");
                 continue;
               }
 
               fs::path perf_map_path(elem.get<std::string>());
 
-              adaptyst_print(module_id, ("A symbol map is expected in " +
-                                         fs::absolute(perf_map_path).string() +
-                                         ", but it hasn't been found!").c_str(),
+              adaptyst_print(this->module_id, ("A symbol map is expected in " +
+                                               fs::absolute(perf_map_path).string() +
+                                               ", but it hasn't been found!").c_str(),
                              true, false, "General");
               result.perf_maps_expected = true;
             }
           } else if (parsed["type"] == "callchains") {
             if (!parsed["data"].is_object()) {
-              adaptyst_print(module_id, ("Message received from profiler \"" +
-                                         profiler->get_name() + "\" "
-                                         "is a JSON object of type \"callchains\", "
-                                         "but its \"data\" "
-                                         "element is not a JSON object, ignoring.").c_str(), true, false, "General");
+              adaptyst_print(this->module_id, ("Message received from profiler \"" +
+                                               profiler->get_name() + "\" "
+                                               "is a JSON object of type \"callchains\", "
+                                               "but its \"data\" "
+                                               "element is not a JSON object, ignoring.").c_str(), true, false, "General");
               continue;
             }
 
             File callchain_file(dir, "callchains", ".json");
-            callchain_file.get_ostream() << parsed["data"].dump() << std::endl;
+            if (!(callchain_file.get_ostream()
+                  << parsed["data"].dump() << std::endl)) {
+              adaptyst_print(this->module_id, "Could not write data to callchains.json",
+                             true, true, "General");
+            }
           } else if (parsed["type"] == "sources") {
             if (!parsed["data"].is_object()) {
-              adaptyst_print(module_id, ("Message received from profiler \"" +
-                                         profiler->get_name() + "\" "
-                                         "is a JSON object of type \"sources\", but its \"data\" "
-                                         "element is not a JSON object, ignoring.").c_str(), true, false, "General");
+              adaptyst_print(this->module_id, ("Message received from profiler \"" +
+                                               profiler->get_name() + "\" "
+                                               "is a JSON object of type \"sources\", but its \"data\" "
+                                               "element is not a JSON object, ignoring.").c_str(), true, false, "General");
               continue;
             }
 
@@ -407,10 +411,10 @@ private:
               index++;
 
               if (!elem.value().is_array()) {
-                adaptyst_print(module_id, ("Element \"" + elem.key() + "\" in the data object of "
-                                           "type \"sources\" received from profiler \"" +
-                                           profiler->get_name() + "\" is not a JSON array, "
-                                           "ignoring this element.").c_str(), true, false, "General");
+                adaptyst_print(this->module_id, ("Element \"" + elem.key() + "\" in the data object of "
+                                                 "type \"sources\" received from profiler \"" +
+                                                 profiler->get_name() + "\" is not a JSON array, "
+                                                 "ignoring this element.").c_str(), true, false, "General");
                 continue;
               }
 
@@ -438,7 +442,7 @@ private:
               callchain = obj["callchain"].template get<
                 std::vector<std::pair<std::string, std::string> > >();
             } catch (...) {
-              adaptyst_print(module_id, "The recently received sample JSON is invalid, ignoring.",
+              adaptyst_print(this->module_id, "The recently received sample JSON is invalid, ignoring.",
                              true, false, "General");
               continue;
             }
@@ -457,10 +461,10 @@ private:
               }
             } else if ((extra_event_name != "" && event_type != extra_event_name) ||
                        (extra_event_name == "" && event_type != "offcpu-time" && event_type != "task-clock")) {
-              adaptyst_print(module_id, ("The recently received sample JSON is of different event type than expected "
-                                         "(received: " + event_type + ", expected: " +
-                                         (extra_event_name == "" ? "task-clock or offcpu-time" : extra_event_name) +
-                                         "), ignoring.").c_str(), true, false, "General");
+              adaptyst_print(this->module_id, ("The recently received sample JSON is of different event type than expected "
+                                               "(received: " + event_type + ", expected: " +
+                                               (extra_event_name == "" ? "task-clock or offcpu-time" : extra_event_name) +
+                                               "), ignoring.").c_str(), true, false, "General");
               continue;
             }
 
@@ -474,7 +478,7 @@ private:
                 offcpu.push_back({0, timestamp - this->profile_start});
               } else {
                 offcpu.push_back(
-                    {timestamp - this->profile_start - period, period});
+                                 {timestamp - this->profile_start - period, period});
               }
             }
 
@@ -558,10 +562,10 @@ private:
             }
           }
         } catch (nlohmann::json::exception) {
-          adaptyst_print(module_id, ("Message received from profiler \"" +
-                                     profiler->get_name() +
-                                     "\" "
-                                     "is not valid JSON, ignoring.")
+          adaptyst_print(this->module_id, ("Message received from profiler \"" +
+                                           profiler->get_name() +
+                                           "\" "
+                                           "is not valid JSON, ignoring.")
                          .c_str(), true,
                          false, "General");
         }
@@ -572,93 +576,100 @@ private:
     }
 
     if (thread_tree_connection) {
-        nlohmann::json json_tree = nlohmann::json::object();
+      nlohmann::json json_tree = nlohmann::json::object();
 
-        json_tree["spawning_callchains"] = tid_dict;
-        json_tree["tree"] = nlohmann::json::array();
+      json_tree["spawning_callchains"] = tid_dict;
+      json_tree["tree"] = nlohmann::json::array();
 
-        nlohmann::json &thread_results = json_tree["tree"];
-        std::unordered_set<std::string> added_identifiers;
+      nlohmann::json &thread_results = json_tree["tree"];
+      std::unordered_set<std::string> added_identifiers;
 
-        for (int i = 0; i < added_list.size(); i++) {
-          std::string k = added_list[i].second;
-          std::string p = tree[k];
+      for (int i = 0; i < added_list.size(); i++) {
+        std::string k = added_list[i].second;
+        std::string p = tree[k];
 
-          if (!p.empty() && added_identifiers.find(p) == added_identifiers.end()) {
-            continue;
-          }
-
-          added_identifiers.insert(k);
-
-          nlohmann::json elem;
-          elem["identifier"] = k;
-          elem["tag"] = nlohmann::json::array();
-
-          int dominant_name_index = 0;
-          int dominant_name_time = 0;
-          for (int i = 1; i < name_time_dict[k].size(); i++) {
-            if (name_time_dict[k][i].second - name_time_dict[k][i - 1].second > dominant_name_time) {
-              dominant_name_index = i - 1;
-              dominant_name_time = name_time_dict[k][i].second - name_time_dict[k][i - 1].second;
-            }
-          }
-
-          if (exit_time_dict.find(k) == exit_time_dict.end() ||
-              exit_time_dict[k] - name_time_dict[k][name_time_dict[k].size() - 1].second > dominant_name_time) {
-            dominant_name_index = name_time_dict[k].size() - 1;
-          }
-
-          elem["tag"][0] = name_time_dict[k][dominant_name_index].first;
-          elem["tag"][1] = combo_dict[k];
-          elem["tag"][2] = name_time_dict[k][0].second;
-
-          if (exit_time_dict.find(k) != exit_time_dict.end()) {
-            elem["tag"][3] = exit_time_dict[k] - name_time_dict[k][0].second;
-          } else {
-            elem["tag"][3] = -1;
-          }
-
-          if (p.empty()) {
-            elem["parent"] = nullptr;
-          } else {
-            elem["parent"] = p;
-          }
-
-          thread_results.push_back(elem);
+        if (!p.empty() && added_identifiers.find(p) == added_identifiers.end()) {
+          continue;
         }
 
-        for (auto &elem : thread_results) {
-          if (this->profile_start >= elem["tag"][2]) {
-            elem["tag"][3] = (unsigned long long)elem["tag"][3] - (this->profile_start - (unsigned long long)elem["tag"][2]);
-            elem["tag"][2] = 0;
-          } else {
-            elem["tag"][2] = (unsigned long long)elem["tag"][2] - this->profile_start;
+        added_identifiers.insert(k);
+
+        nlohmann::json elem;
+        elem["identifier"] = k;
+        elem["tag"] = nlohmann::json::array();
+
+        int dominant_name_index = 0;
+        int dominant_name_time = 0;
+        for (int i = 1; i < name_time_dict[k].size(); i++) {
+          if (name_time_dict[k][i].second - name_time_dict[k][i - 1].second > dominant_name_time) {
+            dominant_name_index = i - 1;
+            dominant_name_time = name_time_dict[k][i].second - name_time_dict[k][i - 1].second;
           }
         }
 
-        File thread_tree_file(dir, "threads", ".json");
-        thread_tree_file.get_ostream() << json_tree.dump() << std::endl;
+        if (exit_time_dict.find(k) == exit_time_dict.end() ||
+            exit_time_dict[k] - name_time_dict[k][name_time_dict[k].size() - 1].second > dominant_name_time) {
+          dominant_name_index = name_time_dict[k].size() - 1;
+        }
+
+        elem["tag"][0] = name_time_dict[k][dominant_name_index].first;
+        elem["tag"][1] = combo_dict[k];
+        elem["tag"][2] = name_time_dict[k][0].second;
+
+        if (exit_time_dict.find(k) != exit_time_dict.end()) {
+          elem["tag"][3] = exit_time_dict[k] - name_time_dict[k][0].second;
+        } else {
+          elem["tag"][3] = -1;
+        }
+
+        if (p.empty()) {
+          elem["parent"] = nullptr;
+        } else {
+          elem["parent"] = p;
+        }
+
+        thread_results.push_back(elem);
       }
 
-      return result;
+      for (auto &elem : thread_results) {
+        if (this->profile_start >= elem["tag"][2]) {
+          elem["tag"][3] = (unsigned long long)elem["tag"][3] - (this->profile_start - (unsigned long long)elem["tag"][2]);
+          elem["tag"][2] = 0;
+        } else {
+          elem["tag"][2] = (unsigned long long)elem["tag"][2] - this->profile_start;
+        }
+      }
+
+      File thread_tree_file(dir, "threads", ".json");
+      if (!(thread_tree_file.get_ostream() << json_tree.dump() << std::endl)) {
+        adaptyst_print(this->module_id, "Could not write data to threads.json", true, true,
+                       "General");
+      }
+    }
+
+    return result;
   }
 
 public:
   static CPULinuxModule *instance;
 
+  CPULinuxModule(amod_t module_id) {
+    this->module_id = module_id;
+  }
+
   bool init() {
-    option *buf_size_opt = adaptyst_get_option(module_id, "buffer_size");
-    option *warmup_opt = adaptyst_get_option(module_id, "warmup");
-    option *freq_opt = adaptyst_get_option(module_id, "freq");
-    option *buffer_opt = adaptyst_get_option(module_id, "buffer");
-    option *off_cpu_freq_opt = adaptyst_get_option(module_id, "off_cpu_freq");
-    option *off_cpu_buffer_opt = adaptyst_get_option(module_id, "off_cpu_buffer");
-    option *event_strs_opt = adaptyst_get_option(module_id, "events");
-    option *filter_opt = adaptyst_get_option(module_id, "filter");
-    option *mark_opt = adaptyst_get_option(module_id, "filter_mark");
-    option *capture_mode_opt = adaptyst_get_option(module_id, "capture_mode");
-    option *perf_path_opt = adaptyst_get_option(module_id, "perf_path");
-    option *perf_script_path_opt = adaptyst_get_option(module_id, "perf_script_path");
+    option *buf_size_opt = adaptyst_get_option(this->module_id, "buffer_size");
+    option *warmup_opt = adaptyst_get_option(this->module_id, "warmup");
+    option *freq_opt = adaptyst_get_option(this->module_id, "freq");
+    option *buffer_opt = adaptyst_get_option(this->module_id, "buffer");
+    option *off_cpu_freq_opt = adaptyst_get_option(this->module_id, "off_cpu_freq");
+    option *off_cpu_buffer_opt = adaptyst_get_option(this->module_id, "off_cpu_buffer");
+    option *event_strs_opt = adaptyst_get_option(this->module_id, "events");
+    option *filter_opt = adaptyst_get_option(this->module_id, "filter");
+    option *mark_opt = adaptyst_get_option(this->module_id, "filter_mark");
+    option *capture_mode_opt = adaptyst_get_option(this->module_id, "capture_mode");
+    option *perf_path_opt = adaptyst_get_option(this->module_id, "perf_path");
+    option *perf_script_path_opt = adaptyst_get_option(this->module_id, "perf_script_path");
 
     unsigned int buf_size = *(unsigned int *)buf_size_opt->data;
     unsigned int warmup = *(unsigned int *)warmup_opt->data;
@@ -679,57 +690,57 @@ public:
     bool mark = *(bool *)mark_opt->data;
     std::string capture_mode(*(const char **)capture_mode_opt->data);
 
-    std::string cpu_mask(adaptyst_get_cpu_mask(module_id));
+    std::string cpu_mask(adaptyst_get_cpu_mask(this->module_id));
     CPUConfig cpu_config(cpu_mask);
 
     if (buf_size >= 1) {
       this->buf_size = buf_size;
     } else {
-      adaptyst_set_error(module_id, "\"buffer_size\" must be greater than or equal to 1.");
+      adaptyst_set_error(this->module_id, "\"buffer_size\" must be greater than or equal to 1.");
       return false;
     }
 
     if (warmup >= 1) {
       this->warmup = warmup;
     } else {
-      adaptyst_set_error(module_id, "\"warmup\" must be greater than or equal to 1.");
+      adaptyst_set_error(this->module_id, "\"warmup\" must be greater than or equal to 1.");
       return false;
     }
 
     if (freq >= 1) {
       this->freq = freq;
     } else {
-      adaptyst_set_error(module_id, "\"freq\" must be greater than or equal to 1.");
+      adaptyst_set_error(this->module_id, "\"freq\" must be greater than or equal to 1.");
       return false;
     }
 
     if (buffer >= 1) {
       this->buffer = buffer;
     } else {
-      adaptyst_set_error(module_id, "\"buffer\" must be greater than or equal to 1.");
+      adaptyst_set_error(this->module_id, "\"buffer\" must be greater than or equal to 1.");
       return false;
     }
 
     if (off_cpu_freq >= -1) {
       this->off_cpu_freq = off_cpu_freq;
     } else {
-      adaptyst_set_error(module_id, "\"off_cpu_freq\" must be greater than or equal to -1.");
+      adaptyst_set_error(this->module_id, "\"off_cpu_freq\" must be greater than or equal to -1.");
       return false;
     }
 
     if (off_cpu_buffer >= 0) {
       this->off_cpu_buffer = off_cpu_buffer;
     } else {
-      adaptyst_set_error(module_id, "\"off_cpu_buffer\" must be greater than or equal to 0.");
+      adaptyst_set_error(this->module_id, "\"off_cpu_buffer\" must be greater than or equal to 0.");
       return false;
     }
 
     int roofline_events = 0;
 
 #if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
-    option *roofline_freq_opt = adaptyst_get_option(module_id, "roofline");
-    option *roofline_benchmark_path_opt = adaptyst_get_option(module_id, "roofline_benchmark_path");
-    option *carm_tool_path_opt = adaptyst_get_option(module_id, "carm_tool_path");
+    option *roofline_freq_opt = adaptyst_get_option(this->module_id, "roofline");
+    option *roofline_benchmark_path_opt = adaptyst_get_option(this->module_id, "roofline_benchmark_path");
+    option *carm_tool_path_opt = adaptyst_get_option(this->module_id, "carm_tool_path");
 
     unsigned int roofline_freq = *(unsigned int *)roofline_freq_opt->data;
     this->roofline_freq = roofline_freq;
@@ -782,26 +793,26 @@ public:
 
         roofline_events = 10;
       } else {
-        adaptyst_set_error(module_id, "Neither an Intel nor an AMD CPU has been detected! "
+        adaptyst_set_error(this->module_id, "Neither an Intel nor an AMD CPU has been detected! "
                            "Roofline profiling in Adaptyst is currently supported "
                            "only for these CPUs.");
         return false;
       }
 
-      fs::path local_config_dir(adaptyst_get_local_config_dir(module_id));
+      fs::path local_config_dir(adaptyst_get_local_config_dir(this->module_id));
 
       if (roofline_benchmark_path_opt->data) {
         fs::path roofline_benchmark_path(*(const char **)roofline_benchmark_path_opt->data);
 
         if (!fs::exists(roofline_benchmark_path)) {
-          adaptyst_set_error(module_id, (roofline_benchmark_path.string() +
-                              " does not exist!").c_str());
+          adaptyst_set_error(this->module_id, (roofline_benchmark_path.string() +
+                                               " does not exist!").c_str());
           return false;
         }
 
         if (!fs::is_regular_file(fs::canonical(roofline_benchmark_path))) {
-          adaptyst_set_error(module_id, (roofline_benchmark_path.string() + " does not point to "
-                              "a regular file!").c_str());
+          adaptyst_set_error(this->module_id, (roofline_benchmark_path.string() + " does not point to "
+                                               "a regular file!").c_str());
           return false;
         }
 
@@ -811,7 +822,7 @@ public:
         this->roofline_benchmark_path = local_config_dir / "roofline.csv";
       } else if (carm_tool_path_opt->data) {
         fs::path carm_tool_path(*(const char **)carm_tool_path_opt->data);
-        fs::path tmp_dir(adaptyst_get_tmp_dir(module_id));
+        fs::path tmp_dir(adaptyst_get_tmp_dir(this->module_id));
 
         std::vector<std::string> command = {
           "python3", carm_tool_path / "run.py", "-out", tmp_dir
@@ -824,8 +835,8 @@ public:
         int exit_code = process.join();
 
         if (exit_code != 0) {
-          adaptyst_set_error(module_id, ("The CARM tool has returned a non-zero exit code " +
-                              std::to_string(exit_code) + ".").c_str());
+          adaptyst_set_error(this->module_id, ("The CARM tool has returned a non-zero exit code " +
+                                               std::to_string(exit_code) + ".").c_str());
           return false;
         }
 
@@ -833,20 +844,20 @@ public:
                           local_config_dir / "roofline.csv")) {
           this->roofline_benchmark_path = local_config_dir / "roofline.csv";
         } else {
-          adaptyst_print(module_id, "Could not copy the roofline benchmark results to the Adaptyst local "
+          adaptyst_print(this->module_id, "Could not copy the roofline benchmark results to the Adaptyst local "
                          "config directory! Continuing, but Adaptyst will have to run roofline "
                          "benchmarking again next time.", true, false, "General");
           this->roofline_benchmark_path = tmp_dir / "roofline" / "unnamed_roofline.csv";
         }
       } else {
-        adaptyst_set_error(module_id, "\"roofline_benchmark_path\" or \"carm_tool_path\" "
+        adaptyst_set_error(this->module_id, "\"roofline_benchmark_path\" or \"carm_tool_path\" "
                            "must be provided "
                            "when \"roofline\" is set and there's no roofline.csv in the Adaptyst "
                            "local config directory.");
         return false;
       }
     } else if (roofline_freq != 0) {
-      adaptyst_set_error(module_id, "\"roofline\" must be greater than or equal to 1.");
+      adaptyst_set_error(this->module_id, "\"roofline\" must be greater than or equal to 1.");
       return false;
     }
 #endif
@@ -870,7 +881,7 @@ public:
       }
 
       if (error != "") {
-        adaptyst_set_error(module_id, error.c_str());
+        adaptyst_set_error(this->module_id, error.c_str());
         return false;
       }
 
@@ -896,7 +907,7 @@ public:
 
       if (!std::regex_match(filter_str, match,
                             std::regex("^(deny|allow|python)\\:(.+)$"))) {
-        adaptyst_set_error(module_id, "The value of \"filter\" is incorrect.");
+        adaptyst_set_error(this->module_id, "The value of \"filter\" is incorrect.");
         return false;
       }
 
@@ -916,11 +927,11 @@ public:
 
     if (allowdenylist_path != "") {
       std::vector<std::vector<std::string > > allowdenylist;
-      adaptyst_print(module_id, ("Reading " + allowdenylist_type + "...").c_str(),
+      adaptyst_print(this->module_id, ("Reading " + allowdenylist_type + "...").c_str(),
                      true, false, "General");
 
       auto process_stream =
-        [](std::istream &stream,
+        [this](std::istream &stream,
            std::vector<std::vector<std::string> > &list) {
           std::vector<std::string> elements;
           int line = 1;
@@ -936,8 +947,8 @@ public:
                                           std::regex("^(SYM|EXEC|ANY) .+$"))) {
                 elements.push_back(input);
               } else {
-                adaptyst_set_error(module_id, ("Line " + std::to_string(line) + " is non-empty and "
-                                    "invalid!").c_str());
+                adaptyst_set_error(this->module_id, ("Line " + std::to_string(line) + " is non-empty and "
+                                                     "invalid!").c_str());
                 return false;
               }
             }
@@ -955,7 +966,7 @@ public:
       std::ifstream stream(allowdenylist_path);
 
       if (!stream) {
-        adaptyst_set_error(module_id, ("Cannot read " + allowdenylist_path + "!").c_str());
+        adaptyst_set_error(this->module_id, ("Cannot read " + allowdenylist_path + "!").c_str());
         return false;
       }
 
@@ -975,7 +986,7 @@ public:
     } else if (capture_mode == "both") {
       this->capture_mode = Perf::CaptureMode::BOTH;
     } else {
-      adaptyst_set_error(module_id, "\"capture_mode\" can be either \"kernel\", \"user\", "
+      adaptyst_set_error(this->module_id, "\"capture_mode\" can be either \"kernel\", \"user\", "
                          "or \"both\".");
       return false;
     }
@@ -988,25 +999,25 @@ public:
       "python" / "Perf-Trace-Util" / "lib" / "Perf" / "Trace";
 
     if (!fs::exists(perf_bin_path)) {
-      adaptyst_set_error(module_id, (perf_bin_path.string() + " does not exist!").c_str());
+      adaptyst_set_error(this->module_id, (perf_bin_path.string() + " does not exist!").c_str());
       return false;
     }
 
     if (!fs::is_regular_file(fs::canonical(perf_bin_path))) {
-      adaptyst_set_error(module_id, (perf_bin_path.string() +
-                          " does not point to a regular file!").c_str());
+      adaptyst_set_error(this->module_id, (perf_bin_path.string() +
+                                           " does not point to a regular file!").c_str());
       return false;
     }
 
     if (!fs::exists(perf_python_path)) {
-      adaptyst_set_error(module_id, (perf_python_path.string() + " does not exist!").c_str());
+      adaptyst_set_error(this->module_id, (perf_python_path.string() + " does not exist!").c_str());
       return false;
     }
 
     if (!fs::is_directory(fs::canonical(perf_python_path))) {
-      adaptyst_set_error(module_id,
-          (perf_python_path.string() + " does not point to a directory!")
-              .c_str());
+      adaptyst_set_error(this->module_id,
+                         (perf_python_path.string() + " does not point to a directory!")
+                         .c_str());
       return false;
     }
 
@@ -1016,26 +1027,26 @@ public:
     fs::path perf_script_path(*(const char **)perf_script_path_opt->data);
 
     if (!fs::exists(perf_script_path)) {
-      adaptyst_set_error(module_id, (perf_script_path.string() + " does not exist!").c_str());
+      adaptyst_set_error(this->module_id, (perf_script_path.string() + " does not exist!").c_str());
       return false;
     }
 
     if (!fs::is_directory(fs::canonical(perf_script_path))) {
-      adaptyst_set_error(module_id, (perf_script_path.string() +
-                                     " does not point to a directory!").c_str());
+      adaptyst_set_error(this->module_id, (perf_script_path.string() +
+                                           " does not point to a directory!").c_str());
       return false;
     }
 
     this->perf_script_path = perf_script_path;
 
-    adaptyst_set_will_profile(module_id, true);
+    adaptyst_set_will_profile(this->module_id, true);
 
     return true;
   }
 
   bool process(const char *sdfg) {
     try {
-      adaptyst_print(module_id, "Preparing profilers and verifying their requirements...",
+      adaptyst_print(this->module_id, "Preparing profilers and verifying their requirements...",
                      false, false, "General");
 
       bool requirements_fulfilled = true;
@@ -1050,7 +1061,7 @@ public:
       PerfEvent syscall_tree;
 
       PipeAcceptor::Factory generic_acceptor_factory;
-      Path module_dir(adaptyst_get_module_dir(module_id));
+      Path module_dir(adaptyst_get_module_dir(this->module_id));
 
       profilers.push_back({std::make_unique<Perf>(generic_acceptor_factory,
                                                   this->buf_size,
@@ -1101,15 +1112,15 @@ public:
 
         try {
           if (!fs::copy_file(this->roofline_benchmark_path,
-                        fs::path(adaptyst_get_module_dir(module_id)) / "roofline.csv",
+                             fs::path(adaptyst_get_module_dir(this->module_id)) / "roofline.csv",
                              fs::copy_options::overwrite_existing)) {
-            adaptyst_set_error(module_id, "Could not copy the roofline benchmarking results: "
-                                           "std::filesystem::copy_file returned false");
+            adaptyst_set_error(this->module_id, "Could not copy the roofline benchmarking results: "
+                               "std::filesystem::copy_file returned false");
             return false;
           }
         } catch (std::exception &e) {
-          adaptyst_set_error(module_id, ("Could not copy the roofline benchmarking results: " +
-                              std::string(e.what())).c_str());
+          adaptyst_set_error(this->module_id, ("Could not copy the roofline benchmarking results: " +
+                                               std::string(e.what())).c_str());
           return false;
         }
       }
@@ -1125,14 +1136,14 @@ public:
       }
 
       if (!requirements_fulfilled) {
-        adaptyst_set_error(module_id, ("Requirement \"" + last_requirement + "\" is not met!").c_str());
+        adaptyst_set_error(this->module_id, ("Requirement \"" + last_requirement + "\" is not met!").c_str());
         return false;
       }
 
-      adaptyst_print(module_id, "Starting profilers and waiting for them to signal their "
+      adaptyst_print(this->module_id, "Starting profilers and waiting for them to signal their "
                      "readiness...", false, false, "General");
 
-      profile_info *profile = adaptyst_get_profile_info(module_id);
+      profile_info *profile = adaptyst_get_profile_info(this->module_id);
       std::vector<std::future<ConnectionResult> > threads;
 
       int index = 0;
@@ -1150,27 +1161,28 @@ public:
         }
       }
 
-      adaptyst_print(module_id, ("All profilers have signalled their readiness, waiting " +
-                                 std::to_string(this->warmup) + " second(s)...").c_str(), false, false, "General");
+      adaptyst_print(this->module_id, ("All profilers have signalled their readiness, waiting " +
+                                       std::to_string(this->warmup) + " second(s)...").c_str(), false, false, "General");
       std::this_thread::sleep_for(this->warmup * 1s);
 
-      adaptyst_print(module_id, "The warmup has been completed.", true, false, "General");
+      adaptyst_print(this->module_id, "The warmup has been completed.", true, false, "General");
 
-      struct timespec ts;
+      adaptyst_profile_notify(this->module_id);
 
-      if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1) {
-        adaptyst_set_error(module_id, "Calling clock_gettime() to get the profile start "
+      unsigned long long timestamp = adaptyst_get_workflow_start_time(this->module_id);
+
+      if (adaptyst_get_internal_error_code(this->module_id) != ADAPTYST_OK) {
+        adaptyst_set_error(this->module_id, "Calling adaptyst_get_workflow_start_time() to get the profile start "
                            "timestamp has failed!");
         return false;
       }
 
-      this->profile_start = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+      this->profile_start = timestamp;
       this->profile_start_set = true;
 
-      adaptyst_profile_notify(module_id);
-      adaptyst_profile_wait(module_id);
+      adaptyst_profile_wait(this->module_id);
 
-      adaptyst_print(module_id, "Finishing processing results...", false, false, "General");
+      adaptyst_print(this->module_id, "Finishing processing results...", false, false, "General");
 
       std::vector<
         std::unordered_map<std::string, std::unordered_set<std::string> > > dso_offsets;
@@ -1198,7 +1210,7 @@ public:
       }
 
       if (profiler_error) {
-        adaptyst_set_error(module_id, "One or more profilers have encountered an error!");
+        adaptyst_set_error(this->module_id, "One or more profilers have encountered an error!");
         return false;
       }
 
@@ -1269,23 +1281,27 @@ public:
       }
 
       {
-        fs::path sources_file_path = fs::path(adaptyst_get_module_dir(module_id)) / "sources.json";
+        fs::path sources_file_path = fs::path(adaptyst_get_module_dir(this->module_id)) / "sources.json";
         std::ofstream sources_file(sources_file_path);
 
         if (!sources_file) {
-          adaptyst_set_error(module_id,
+          adaptyst_set_error(this->module_id,
                              ("Could not open " + sources_file_path.string() + " for writing!").c_str());
           return false;
         }
 
-        sources_file << sources_json.dump() << std::endl;
+        if (!(sources_file << sources_json.dump() << std::endl)) {
+          adaptyst_set_error(this->module_id,
+                             ("Could not write data to " + sources_file_path.string()).c_str());
+          return false;
+        }
       }
 
       if (perf_maps_expected) {
-        adaptyst_print(module_id, "One or more expected symbol maps haven't been found! "
+        adaptyst_print(this->module_id, "One or more expected symbol maps haven't been found! "
                        "This is not an error, but some symbol names will be unresolved and "
                        "point to the name of an expected map file instead.", true, false, "General");
-        adaptyst_print(module_id, "If it's not desired, make sure that your profiled "
+        adaptyst_print(this->module_id, "If it's not desired, make sure that your profiled "
                        "program is configured to emit \"perf\" symbol maps.", true, false, "General");
       }
 
@@ -1296,41 +1312,42 @@ public:
         paths[path_index++] = path.c_str();
       }
 
-      adaptyst_process_src_paths(module_id, paths, src_paths.size());
+      adaptyst_process_src_paths(this->module_id, paths, src_paths.size());
 
       return true;
     } catch (std::exception &e) {
-      adaptyst_set_error(module_id, ("An exception has occurred: " +
-                                     std::string(e.what())).c_str());
+      adaptyst_set_error(this->module_id, ("An exception has occurred: " +
+                                           std::string(e.what())).c_str());
       return false;
     }
   }
 };
 
-amod_t module_id = 0;
 CPULinuxModule *CPULinuxModule::instance = nullptr;
+amod_t module_id = 0;
 
 extern "C" {
-  bool adaptyst_module_init() {
+  bool adaptyst_module_init(amod_t mod_id) {
     try {
-      CPULinuxModule::instance = new CPULinuxModule();
+      CPULinuxModule::instance = new CPULinuxModule(mod_id);
     } catch (std::bad_alloc &e) {
-      adaptyst_set_error(module_id, "Could not allocate memory for CPULinuxModule");
+      adaptyst_set_error(mod_id, "Could not allocate memory for CPULinuxModule");
       return false;
     } catch (std::exception &e) {
-      adaptyst_set_error(module_id, ("An exception has occurred: " +
-                                     std::string(e.what())).c_str());
+      adaptyst_set_error(mod_id, ("An exception has occurred: " +
+                                  std::string(e.what())).c_str());
       return false;
     }
 
+    module_id = mod_id;
     return CPULinuxModule::instance->init();
   }
 
-  bool adaptyst_module_process(const char *sdfg) {
+  bool adaptyst_module_process(amod_t module_id, const char *sdfg) {
     return CPULinuxModule::instance->process(sdfg);
   }
 
-  void adaptyst_module_close() {
+  void adaptyst_module_close(amod_t module_id) {
     delete CPULinuxModule::instance;
   }
 }
