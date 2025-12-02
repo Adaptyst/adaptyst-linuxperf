@@ -209,98 +209,107 @@ private:
   fs::path roofline_benchmark_path;
 #endif
 
-  void save_sample(Path &process_dir,
+  void save_sample(nlohmann::json *data,
                    std::vector<std::pair<std::string, std::string> > &callchain_parts,
-                   int &next_dataset_id,
                    unsigned long long period,
                    bool time_ordered, bool offcpu) {
     bool last_block;
-    Path root_dir = process_dir / (time_ordered ? "timed" : "untimed");
 
     if (time_ordered) {
-      Array<unsigned long long> cur_elem(root_dir, "all");
-      cur_elem.set_metadata<std::string>("name", "all");
+      nlohmann::json *cur_elem = data;
 
       const std::string key = offcpu ? "cold_value" : "hot_value";
-      cur_elem.set_metadata<
-        unsigned long long>(key,
-                            cur_elem.get_metadata<unsigned long long>(key, 0) + period);
+      (*cur_elem)[key] = (unsigned long long)(*cur_elem)[key] + period;
+      (*cur_elem)["value"] = (unsigned long long)(*cur_elem)["value"] + period;
 
       int index = 0;
 
       if (!callchain_parts.empty()) {
         do {
           last_block = index == callchain_parts.size() - 1;
-          bool dataset_assigned = false;
+          bool elem_assigned = false;
 
-          if (cur_elem.size() > 0) {
-            unsigned long long id = cur_elem[cur_elem.size() - 1];
-            Array<unsigned long long> candidate(root_dir, std::to_string(id));
-            std::string candidate_name = candidate.get_metadata<std::string>("name");
+          if ((*cur_elem)["children"].size() > 0) {
+            nlohmann::json *child = &(*cur_elem)["children"][(*cur_elem)["children"].size() - 1];
+            std::string candidate_name = (*child)["name"];
 
             if (candidate_name == callchain_parts[index].first) {
-              if ((last_block && candidate.size() == 0) ||
-                  (!last_block && candidate.size() > 0)) {
-                cur_elem = std::move(candidate);
-                dataset_assigned = true;
+              if ((last_block && (*child)["children"].size() == 0) ||
+                  (!last_block && (*child)["children"].size() > 0)) {
+                cur_elem = child;
+                elem_assigned = true;
               }
             }
           }
 
-          if (dataset_assigned) {
-            cur_elem.set_metadata<
-              unsigned long long>(key,
-                                  cur_elem.get_metadata<unsigned long long>(key, 0) + period);
-            std::string &offset = callchain_parts[index].second;
-            cur_elem.set_metadata<
-              unsigned long long>((offcpu ? "cold_" : "hot_") + offset,
-                                  cur_elem.get_metadata<
-                                  unsigned long long>((offcpu ? "cold_" : "hot_") + offset, 0) +
-                                  period);
-          } else {
-            int dataset_id = next_dataset_id++;
-            Array<unsigned long long> new_dataset(root_dir, std::to_string(dataset_id));
-            new_dataset.set_metadata<std::string>("name", callchain_parts[index].first);
-            new_dataset.set_metadata<
-              unsigned long long>(key,
-                                  new_dataset.get_metadata<
-                                  unsigned long long>(key, 0) + period);
-            std::string &offset = callchain_parts[index].second;
-            new_dataset.set_metadata<
-              unsigned long long>((offcpu ? "cold_" : "hot_") + offset,
-                                  new_dataset.get_metadata<
-                                  unsigned long long>((offcpu ? "cold_" : "hot_") + offset, 0) +
-                                  period);
-
-            cur_elem.push_back(dataset_id);
-            cur_elem = std::move(new_dataset);
+          if (!elem_assigned) {
+            (*cur_elem)["children"].push_back(nlohmann::json::object());
+            nlohmann::json &obj = (*cur_elem)["children"][(*cur_elem)["children"].size() - 1];
+            obj["name"] = callchain_parts[index].first;
+            obj["value"] = 0;
+            obj["hot_value"] = 0;
+            obj["cold_value"] = 0;
+            obj["offsets"] = nlohmann::json::object();
+            obj["children"] = nlohmann::json::array();
+            cur_elem = &obj;
           }
+
+          (*cur_elem)[key] = (unsigned long long)(*cur_elem)[key] + period;
+          (*cur_elem)["value"] = (unsigned long long)(*cur_elem)["value"] + period;
+
+          std::string &offset = callchain_parts[index].second;
+          std::string offset_key = offcpu ? "cold_value" : "hot_value";
+
+          if (!(*cur_elem)["offsets"].contains(offset)) {
+            (*cur_elem)["offsets"][offset] = nlohmann::json::object();
+            (*cur_elem)["offsets"][offset]["cold_value"] = 0;
+            (*cur_elem)["offsets"][offset]["hot_value"] = 0;
+          }
+
+          (*cur_elem)["offsets"][offset][offset_key] =
+            (unsigned long long)(*cur_elem)["offsets"][offset][offset_key] + period;
 
           index++;
         } while (!last_block);
       }
     } else {
-      Path cur_elem = root_dir / "all";
+      nlohmann::json *cur_elem = data;
 
       std::string key = offcpu ? "cold_value" : "hot_value";
-      cur_elem.set_metadata<
-        unsigned long long>(key,
-                            cur_elem.get_metadata<unsigned long long>(key, 0) + period);
+      (*cur_elem)[key] = (unsigned long long)(*cur_elem)[key] + period;
+      (*cur_elem)["value"] = (unsigned long long)(*cur_elem)["value"] + period;
 
       int index = 0;
 
       if (!callchain_parts.empty()) {
         do {
           last_block = index == callchain_parts.size() - 1;
-          cur_elem = cur_elem / callchain_parts[index].first;
-          cur_elem.set_metadata<
-            unsigned long long>(key,
-                                cur_elem.get_metadata<unsigned long long>(key, 0) + period);
-          std::string &offset = callchain_parts[index].second;
-          cur_elem.set_metadata<
-            unsigned long long>((offcpu ? "cold_" : "hot_") + offset,
-                                cur_elem.get_metadata<unsigned long long>((offcpu ? "cold_" : "hot_") + offset, 0) + period);
 
+          if (!(*cur_elem)["children"].contains(callchain_parts[index].first)) {
+            nlohmann::json &obj = (*cur_elem)["children"][callchain_parts[index].first] = nlohmann::json::object();
+            obj["name"] = callchain_parts[index].first;
+            obj["value"] = 0;
+            obj["hot_value"] = 0;
+            obj["cold_value"] = 0;
+            obj["offsets"] = nlohmann::json::object();
+            obj["children"] = nlohmann::json::object();
+          }
+
+          cur_elem = &(*cur_elem)["children"][callchain_parts[index].first];
+          (*cur_elem)[key] = (unsigned long long)(*cur_elem)[key] + period;
+          (*cur_elem)["value"] = (unsigned long long)(*cur_elem)["value"] + period;
+
+          std::string &offset = callchain_parts[index].second;
+          std::string offset_key = offcpu ? "cold_value" : "hot_value";
+
+          if (!(*cur_elem)["offsets"].contains(offset)) {
+            (*cur_elem)["offsets"][offset] = nlohmann::json::object();
+            (*cur_elem)["offsets"][offset]["cold_value"] = 0;
+            (*cur_elem)["offsets"][offset]["hot_value"] = 0;
+          }
+
+          (*cur_elem)["offsets"][offset][offset_key] =
+            (unsigned long long)(*cur_elem)["offsets"][offset][offset_key] + period;
           index++;
         } while (!last_block);
       }
@@ -322,10 +331,12 @@ private:
     std::vector<std::pair<unsigned long long, std::string> > added_list;
     std::string extra_event_name = "";
     bool first_event_received = false;
-    std::unordered_map<std::string, int> next_dataset_id_map;
 
     std::string line;
     bool thread_tree_connection = false;
+
+    std::unordered_map<std::string, nlohmann::json> timed_data_map;
+    std::unordered_map<std::string, nlohmann::json> untimed_data_map;
 
     try {
       while ((line = connection->read()) != "<STOP>") {
@@ -482,16 +493,33 @@ private:
               }
             }
 
-            if (next_dataset_id_map.find(pid + "_" + tid) ==
-                next_dataset_id_map.end()) {
-              next_dataset_id_map[pid + "_" + tid] = 0;
+            std::string pid_tid = pid + "_" + tid;
+
+            if (untimed_data_map.find(pid_tid) == untimed_data_map.end()) {
+              untimed_data_map[pid_tid] = nlohmann::json::object();
+              untimed_data_map[pid_tid]["name"] = "all";
+              untimed_data_map[pid_tid]["children"] = nlohmann::json::object();
+              untimed_data_map[pid_tid]["cold_value"] = 0;
+              untimed_data_map[pid_tid]["hot_value"] = 0;
+              untimed_data_map[pid_tid]["value"] = 0;
+              untimed_data_map[pid_tid]["pid"] = pid;
+              untimed_data_map[pid_tid]["tid"] = tid;
             }
 
-            this->save_sample(pid_tid_dir, callchain,
-                              next_dataset_id_map[pid + "_" + tid],
+            if (timed_data_map.find(pid_tid) == timed_data_map.end()) {
+              timed_data_map[pid_tid] = nlohmann::json::object();
+              timed_data_map[pid_tid]["name"] = "all";
+              timed_data_map[pid_tid]["children"] = nlohmann::json::array();
+              timed_data_map[pid_tid]["cold_value"] = 0;
+              timed_data_map[pid_tid]["hot_value"] = 0;
+              timed_data_map[pid_tid]["value"] = 0;
+              timed_data_map[pid_tid]["pid"] = pid;
+              timed_data_map[pid_tid]["tid"] = tid;
+            }
+
+            this->save_sample(&untimed_data_map[pid_tid], callchain,
                               period, false, event_type == "offcpu-time");
-            this->save_sample(pid_tid_dir, callchain,
-                              next_dataset_id_map[pid + "_" + tid],
+            this->save_sample(&timed_data_map[pid_tid], callchain,
                               period, true, event_type == "offcpu-time");
 
             pid_tid_dir.set_metadata<
@@ -644,6 +672,76 @@ private:
       if (!(thread_tree_file.get_ostream() << json_tree.dump() << std::endl)) {
         adaptyst_print(this->module_id, "Could not write data to threads.json", true, true,
                        "General");
+      }
+    } else {
+      for (auto &entry : untimed_data_map) {
+        nlohmann::json &obj = entry.second;
+        std::string pid = obj["pid"];
+        std::string tid = obj["tid"];
+
+        obj.erase("pid");
+        obj.erase("tid");
+
+        std::deque<nlohmann::json *> elem_queue;
+        elem_queue.push_back(&obj);
+
+        while (!elem_queue.empty()) {
+          nlohmann::json *elem_ptr = elem_queue.front();
+          nlohmann::json &elem = *elem_ptr;
+
+          elem["children_tmp"] = nlohmann::json::array();
+
+          for (auto &entry : elem["children"].items()) {
+            elem["children_tmp"].push_back(nlohmann::json::object());
+            elem["children_tmp"][elem["children_tmp"].size() - 1].swap(entry.value());
+          }
+
+          elem["children"].swap(elem["children_tmp"]);
+          elem.erase("children_tmp");
+
+          for (auto &entry : elem["children"]) {
+            elem_queue.push_back(&entry);
+          }
+
+          elem_queue.pop_front();
+        }
+
+        fs::path path = fs::path(dir.get_path_name()) / pid / tid / "untimed.json";
+        std::ofstream stream(path);
+
+        if (!stream) {
+          throw std::runtime_error(("Could not open " + path.string() + " for writing").c_str());
+        }
+
+        stream << obj.dump() << std::endl;
+
+        if (!stream) {
+          throw std::runtime_error(("Could not write to " + path.string() + ". Do you have "
+                                    "enough disk space?").c_str());
+        }
+      }
+
+      for (auto &entry : timed_data_map) {
+        nlohmann::json &obj = entry.second;
+        std::string pid = obj["pid"];
+        std::string tid = obj["tid"];
+
+        obj.erase("pid");
+        obj.erase("tid");
+
+        fs::path path = fs::path(dir.get_path_name()) / pid / tid / "timed.json";
+        std::ofstream stream(path);
+
+        if (!stream) {
+          throw std::runtime_error(("Could not open " + path.string() + " for writing").c_str());
+        }
+
+        stream << obj.dump() << std::endl;
+
+        if (!stream) {
+          throw std::runtime_error(("Could not write to " + path.string() + ". Do you have "
+                                    "enough disk space?").c_str());
+        }
       }
     }
 
