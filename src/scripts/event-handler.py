@@ -11,9 +11,8 @@ import json
 import re
 import socket
 import importlib.util
-import select
 from cxxfilt import demangle
-from bisect import bisect_left
+from bisect import bisect_right
 from pathlib import Path
 from collections import defaultdict
 
@@ -104,18 +103,21 @@ def find_in_map(map_path, map_id, ip):
         return None
 
     for group in groups:
-        index = bisect_left(group, ip,
-                            key=lambda x: x[0])
+        index = bisect_right(group, ip,
+                             key=lambda x: x[0]) - 1
 
-        if index < len(group) and group[index][0] <= ip and \
+        if index >= 0 and index < len(group) and group[index][0] <= ip and \
            group[index][0] + group[index][1] > ip:
             return group[index][2]
 
-    ready, _, _ = select.select([f], [], [], 0)
     to_add = []
 
-    while f in ready:
-        line = next(f).strip()
+    while True:
+        try:
+            line = next(f).strip()
+        except StopIteration:
+            break
+
         i[0] += 1
 
         match = re.search(
@@ -125,7 +127,6 @@ def find_in_map(map_path, map_id, ip):
             print(f'Line {i[0]}, {map_path}: '
                   'incorrect syntax, ignoring.',
                   file=sys.stderr)
-            ready, _, _ = select.select([f], [], [], 0)
             continue
 
         data = (int(match.group(1), 16),
@@ -140,8 +141,6 @@ def find_in_map(map_path, map_id, ip):
                 perf_maps[map_id][-1].append(to_add)
 
             return data[2]
-
-        ready, _, _ = select.select([f], [], [], 0)
 
     if len(to_add) > 0:
         to_add.sort(key=lambda x: x[0])
