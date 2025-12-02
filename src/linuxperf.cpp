@@ -143,15 +143,17 @@ volatile const char *capture_mode_default = "user";
 
 volatile const char *perf_path_help =
   "Path to the patched \"perf\" installation. Change it only "
-  "if you know what you’re doing.";
+  "if you know what you’re doing. Relative paths have the "
+  "loaded library path as the parent.";
 volatile const option_type perf_path_type = STRING;
-volatile const char *perf_path_default = MODULE_PATH "/perf";
+volatile const char *perf_path_default = "perf";
 
 volatile const char *perf_script_path_help =
   "Path to the linuxperf scripts interacting with \"perf\". Change "
-  "it only if you know what you’re doing.";
+  "it only if you know what you’re doing. Relative paths have "
+  "the loaded library path as the parent.";
 volatile const option_type perf_script_path_type = STRING;
-volatile const char *perf_script_path_default = MODULE_PATH;
+volatile const char *perf_script_path_default = "";
 
 #if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
 volatile const char *roofline_help =
@@ -596,6 +598,9 @@ private:
                                            "is not valid JSON, ignoring.")
                          .c_str(), true,
                          false, "General");
+        } catch (std::exception &e) {
+          adaptyst_print(this->module_id, "Error", true, false, "General");
+          throw e;
         }
       }
     } catch (ConnectionException &e) {
@@ -1092,6 +1097,11 @@ public:
     this->cpu_config = cpu_config;
 
     fs::path perf_path(*(const char **)perf_path_opt->data);
+
+    if (perf_path.is_relative()) {
+      perf_path = fs::path(adaptyst_get_library_dir(this->module_id)).parent_path() / perf_path;
+    }
+
     fs::path perf_bin_path = perf_path / "bin" / "perf";
     fs::path perf_python_path = perf_path / "libexec" / "perf-core" / "scripts" /
       "python" / "Perf-Trace-Util" / "lib" / "Perf" / "Trace";
@@ -1123,6 +1133,10 @@ public:
     this->perf_python_path = perf_python_path;
 
     fs::path perf_script_path(*(const char **)perf_script_path_opt->data);
+
+    if (perf_script_path.is_relative()) {
+      perf_script_path = fs::path(adaptyst_get_library_dir(this->module_id)).parent_path() / perf_script_path;
+    }
 
     if (!fs::exists(perf_script_path)) {
       adaptyst_set_error(this->module_id, (perf_script_path.string() + " does not exist!").c_str());
