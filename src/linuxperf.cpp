@@ -37,12 +37,10 @@ volatile const char *options[] = {
   "capture_mode",
   "perf_path",
   "perf_script_path",
-#ifdef BOOST_ARCH_X86
-#ifdef __GNUC__
+#if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
   "roofline",
   "roofline_benchmark_path",
   "carm_tool_path",
-#endif
 #endif
   NULL};
 
@@ -1218,7 +1216,7 @@ public:
                                                     this->filter), metric_dir});
       }
 
-#if defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
+#if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
       if (this->roofline_freq > 0) {
         std::ifstream roofline(this->roofline_benchmark_path);
 
