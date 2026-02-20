@@ -19,8 +19,8 @@
 #include <adaptyst/hw.h>
 
 volatile const char *name = "linuxperf";
-volatile const char *version = "0.1.0-dev.2025.11a";
-volatile int version_nums[] = {0, 1, 0, 2, -1};
+volatile const char *version = "0.1.0-dev.2026.02a";
+volatile int version_nums[] = {0, 1, 0, 3, -1};
 
 volatile const unsigned int max_count_per_entity = 1;
 
