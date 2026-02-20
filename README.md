@@ -25,4 +25,6 @@ All instructions related to adaptyst-linuxperf can be found [here](https://adapt
 
 ## Acknowledgements
 The adaptyst-linuxperf development is possible thanks to the following funding sources:
-* The European Union HE research and innovation programme, grant agreement No 101092877 (SYCLOPS).
+* The European Union HE research and innovation programme, grant agreement No 101092877 ([SYCLOPS](https://syclops.org)).
+* The European Union HE research and innovation programme, grant agreement No 101129744 ([EVERSE](https://everse.software)).
+* The European Union HE research and innovation programme, grant agreement No 101070014 ([OpenWebSearch.eu](https://openwebsearch.eu)).
