@@ -23,8 +23,6 @@ add_library(linuxperf SHARED
   src/linuxperf.cpp
   src/linuxperf_profiling.cpp)
 
-target_compile_definitions(linuxperf PRIVATE MODULE_PATH="${INSTALL_PATH}/linuxperf")
-
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NUMA numa)
 if(NUMA_FOUND)

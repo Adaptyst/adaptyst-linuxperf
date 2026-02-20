@@ -110,3 +110,6 @@ flycheck_*.el
 # Language server files and directories
 .ccls-cache
 .ccls-root
+
+# Build stuff
+build
