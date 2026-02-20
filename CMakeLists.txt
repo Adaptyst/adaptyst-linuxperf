@@ -65,7 +65,7 @@ if(PERF)
       GIT_PROGRESS TRUE
       CONFIGURE_COMMAND ""
       BUILD_IN_SOURCE TRUE
-      BUILD_COMMAND sh -c "make -C tools/perf install DEBUG=1 BUILD_BPF_SKEL=1 prefix=\"${CMAKE_BINARY_DIR}/perf-install\""
+      BUILD_COMMAND sh -c "make -C tools/perf install BUILD_BPF_SKEL=1 prefix=\"${CMAKE_BINARY_DIR}/perf-install\""
       INSTALL_COMMAND "")
   endif()
 
