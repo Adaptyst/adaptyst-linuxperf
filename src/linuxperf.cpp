@@ -1154,7 +1154,7 @@ public:
     return true;
   }
 
-  bool process(const char *sdfg) {
+  bool process(ir workflow) {
     try {
       adaptyst_print(this->module_id, "Preparing profilers and verifying their requirements...",
                      false, false, "General");
@@ -1453,8 +1453,8 @@ extern "C" {
     return CPULinuxModule::instance->init();
   }
 
-  bool adaptyst_module_process(amod_t module_id, const char *sdfg) {
-    return CPULinuxModule::instance->process(sdfg);
+  bool adaptyst_module_process(amod_t module_id, ir workflow) {
+    return CPULinuxModule::instance->process(workflow);
   }
 
   void adaptyst_module_close(amod_t module_id) {
