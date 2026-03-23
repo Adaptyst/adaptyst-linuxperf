@@ -480,39 +480,45 @@ def syscall_tree_callback(syscall_type, comm_name, pid, tid, time,
 
 def sched__sched_process_fork(event_name, context, common_cpu,
 	                          common_secs, common_nsecs, common_pid,
-                              common_comm, common_callchain, parent_comm,
-                              parent_pid, child_comm, child_pid,
-		                      perf_sample_dict):
-    syscall_callback(perf_sample_dict['callchain'], child_pid)
-    syscall_tree_callback('new_proc', common_comm, perf_sample_dict['sample']['pid'],
-                          perf_sample_dict['sample']['tid'], perf_sample_dict['sample']['time'],
+                              common_comm, common_callchain,
+                              common_perf_sample_dict, parent_comm,
+                              parent_pid, child_comm, child_pid, *args):
+    syscall_callback(common_perf_sample_dict['callchain'], child_pid)
+    syscall_tree_callback('new_proc', common_comm,
+                          common_perf_sample_dict['sample']['pid'],
+                          common_perf_sample_dict['sample']['tid'],
+                          common_perf_sample_dict['sample']['time'],
                           child_pid)
 
 
 def sched__sched_process_exit(event_name, context, common_cpu,
 	                          common_secs, common_nsecs, common_pid,
-                              common_comm, common_callchain, comm, pid,
-                              prio, perf_sample_dict):
-    syscall_tree_callback('exit', common_comm, perf_sample_dict['sample']['pid'],
-                          perf_sample_dict['sample']['tid'],
-                          perf_sample_dict['sample']['time'], 0)
+                              common_comm, common_callchain,
+                              common_perf_sample_dict, comm, pid,
+                              prio, *args):
+    syscall_tree_callback('exit', common_comm,
+                          common_perf_sample_dict['sample']['pid'],
+                          common_perf_sample_dict['sample']['tid'],
+                          common_perf_sample_dict['sample']['time'], 0)
 
 
 def syscalls__sys_exit_execve(event_name, context, common_cpu, common_secs,
                               common_nsecs, common_pid, common_comm,
-                              common_callchain, __syscall_nr, ret,
-                              perf_sample_dict):
+                              common_callchain, common_perf_sample_dict,
+                              __syscall_nr, ret, *args):
     if ret == 0:
-        syscall_tree_callback('execve', common_comm, perf_sample_dict['sample']['pid'],
-                              perf_sample_dict['sample']['tid'],
-                              perf_sample_dict['sample']['time'], ret)
+        syscall_tree_callback('execve', common_comm,
+                              common_perf_sample_dict['sample']['pid'],
+                              common_perf_sample_dict['sample']['tid'],
+                              common_perf_sample_dict['sample']['time'], ret)
 
 
 def syscalls__sys_exit_execveat(event_name, context, common_cpu, common_secs,
                                 common_nsecs, common_pid, common_comm,
-                                common_callchain, __syscall_nr, ret,
-                                perf_sample_dict):
+                                common_callchain, common_perf_sample_dict,
+                                __syscall_nr, ret, *args):
     if ret == 0:
-        syscall_tree_callback('execve', common_comm, perf_sample_dict['sample']['pid'],
-                              perf_sample_dict['sample']['tid'],
-                              perf_sample_dict['sample']['time'], ret)
+        syscall_tree_callback('execve', common_comm,
+                              common_perf_sample_dict['sample']['pid'],
+                              common_perf_sample_dict['sample']['tid'],
+                              common_perf_sample_dict['sample']['time'], ret)
