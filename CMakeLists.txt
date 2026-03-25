@@ -7,7 +7,7 @@ project(adaptyst-linuxperf
 
 option(PERF "Compile patched \"perf\"" ON)
 option(ROOFLINE "Compile adaptyst-linuxperf with cache-aware roofline support (requires GCC)" ON)
-set(PERF_TAG "dev-20251017" CACHE STRING "Patched \"perf\" git tag which should be used for setting up \"perf\"")
+set(PERF_TAG "dev-20260325" CACHE STRING "Patched \"perf\" git tag which should be used for setting up \"perf\"")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
