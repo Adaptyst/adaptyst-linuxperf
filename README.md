@@ -23,8 +23,12 @@ The module is distributed under the GNU GPL v2 (**only this version**) license, 
 ## Installation and documentation
 All instructions related to adaptyst-linuxperf can be found [here](https://adaptyst.web.cern.ch/docs/modules/linuxperf-cpus-running-linux).
 
+## Support
+GitHub Issues are retired in this repository. Please use [our Jira issue tracker](https://adaptyst.web.cern.ch/issue-tracker) and/or [forum](https://adaptyst-forum.web.cern.ch) instead (you can use your GitHub account there).
+
 ## Acknowledgements
 The adaptyst-linuxperf development is possible thanks to the following funding sources:
 * The European Union HE research and innovation programme, grant agreement No 101092877 ([SYCLOPS](https://syclops.org)).
 * The European Union HE research and innovation programme, grant agreement No 101129744 ([EVERSE](https://everse.software)).
 * The European Union HE research and innovation programme, grant agreement No 101070014 ([OpenWebSearch.eu](https://openwebsearch.eu)).
+* The Eric & Wendy Schmidt Fund for Strategic Innovation, grant agreement No SIF-2023-004 ([CERN Next Generation Triggers](https://nextgentriggers.web.cern.ch)).
