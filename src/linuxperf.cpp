@@ -228,8 +228,8 @@ private:
   amod_t module_id;
   std::unordered_map<std::string,
     std::unordered_map<std::string,
-                       std::pair<unsigned long long, unsigned long long> > > active_regions;
-  std::mutex active_regions_mutex;
+                       std::vector<std::pair<unsigned long long, unsigned long long> > > > regions;
+  std::mutex regions_mutex;
 
 #if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
   unsigned int roofline_freq;
@@ -370,7 +370,7 @@ private:
     std::unordered_map<std::string,
                        std::unordered_map<std::string, nlohmann::json> > region_untimed_data_map;
     std::unordered_map<std::string,
-                       std::unordered_map<std::string, unsigned long long> > region_start_timestamp_map;
+                       std::unordered_map<std::string, std::unordered_set<unsigned long long> > > region_assigned_map;
 
     try {
       while ((line = connection->read()) != "<STOP>") {
@@ -546,14 +546,14 @@ private:
             }
 
             std::vector<std::pair<std::string,
-                                  std::pair<unsigned long long,
-                                            unsigned long long> > > regions;
+                                  std::vector<std::pair<unsigned long long,
+                                                        unsigned long long> > > > regions;
 
             {
-              auto lock = std::unique_lock(this->active_regions_mutex);
+              auto lock = std::unique_lock(this->regions_mutex);
 
-              if (this->active_regions.find(pid_tid) != this->active_regions.end()) {
-                for (auto &region : this->active_regions[pid_tid]) {
+              if (this->regions.find(pid_tid) != this->regions.end()) {
+                for (auto &region : this->regions[pid_tid]) {
                   regions.push_back(region);
                 }
               }
@@ -563,35 +563,60 @@ private:
 
             for (auto &region : regions) {
               std::string name = region.first;
-              unsigned long long start_timestamp = region.second.first;
-              unsigned long long end_timestamp = region.second.second;
+              auto &instances = region.second;
 
-              if (timestamp < start_timestamp ||
-                  (end_timestamp >= start_timestamp &&
-                   timestamp > end_timestamp)) {
+              bool covered = false;
+              unsigned long long start_timestamp_covered = 0;
+
+              for (auto &timestamps : instances) {
+                unsigned long long start_timestamp = timestamps.first;
+                unsigned long long end_timestamp = timestamps.second;
+
+                if (event_type == "offcpu-time") {
+                  unsigned long long offcpu_start_timestamp = timestamp - period;
+
+                  if (!((offcpu_start_timestamp < start_timestamp &&
+                       timestamp < start_timestamp) ||
+                      (end_timestamp >= start_timestamp &&
+                       offcpu_start_timestamp > end_timestamp))) {
+                    covered = true;
+                    start_timestamp_covered = start_timestamp;
+                    break;
+                  }
+                } else if (!(timestamp < start_timestamp ||
+                           (end_timestamp >= start_timestamp &&
+                            timestamp > end_timestamp))) {
+                  covered = true;
+                  start_timestamp_covered = start_timestamp;
+                  break;
+                }
+              }
+
+              if (covered) {
+                at_least_one_region = true;
+              } else {
                 continue;
               }
 
-              at_least_one_region = true;
+              if (event_type != "offcpu-time") {
+                if (region_assigned_map.find(pid_tid) ==
+                    region_assigned_map.end()) {
+                  region_assigned_map[pid_tid] =
+                    std::unordered_map<std::string, std::unordered_set<unsigned long long> >();
+                }
 
-              if (region_start_timestamp_map.find(pid_tid) ==
-                  region_start_timestamp_map.end()) {
-                region_start_timestamp_map[pid_tid] =
-                  std::unordered_map<std::string, unsigned long long>();
-              }
+                if (region_assigned_map[pid_tid].find(name) ==
+                    region_assigned_map[pid_tid].end()) {
+                  region_assigned_map[pid_tid][name] = std::unordered_set<unsigned long long>();
+                }
 
-              bool just_assigned = false;
+                if (!region_assigned_map[pid_tid][name].contains(start_timestamp_covered)) {
+                  region_assigned_map[pid_tid][name].insert(start_timestamp_covered);
 
-              if (region_start_timestamp_map[pid_tid].find(name) ==
-                  region_start_timestamp_map[pid_tid].end() ||
-                  region_start_timestamp_map[pid_tid][name] != start_timestamp) {
-                region_start_timestamp_map[pid_tid][name] = start_timestamp;
-                just_assigned = true;
-              }
-
-              if (event_type != "offcpu-time" &&
-                  just_assigned && !this->region_save_on_first) {
-                continue;
+                  if (!this->region_save_on_first) {
+                    continue;
+                  }
+                }
               }
 
               if (region_untimed_data_map.find(pid_tid) == region_untimed_data_map.end()) {
@@ -645,7 +670,7 @@ private:
               Array<std::pair<
                 unsigned long long, unsigned long long> > offcpu(pid_tid_dir, "offcpu");
 
-              if (timestamp - this->profile_start - period < 0) {
+              if (timestamp < this->profile_start + period) {
                 offcpu.push_back({0, timestamp - this->profile_start});
               } else {
                 offcpu.push_back(
@@ -1589,6 +1614,39 @@ public:
 
       adaptyst_process_src_paths(this->module_id, paths, src_paths.size());
 
+      for (auto &entry : this->regions) {
+        std::string pid_tid = entry.first;
+        std::vector<std::string> parts;
+        boost::split(parts, pid_tid, boost::is_any_of("_"));
+
+        if (parts.size() != 2) {
+          return false;
+        }
+
+        Path pid_tid_dir = module_dir / "walltime" / parts[0] / parts[1];
+
+        Array<std::tuple<
+          std::string, unsigned long long, unsigned long long> > regions_arr(pid_tid_dir,
+                                                                             "regions");
+
+        for (auto &subentry : entry.second) {
+          std::string name = subentry.first;
+
+          for (auto &timestamps : subentry.second) {
+            unsigned long long start_timestamp = timestamps.first;
+            unsigned long long end_timestamp = timestamps.second;
+
+            if (start_timestamp < this->profile_start) {
+              regions_arr.push_back(std::make_tuple(name, 0,
+                                                    end_timestamp - this->profile_start));
+            } else {
+              regions_arr.push_back(std::make_tuple(name, start_timestamp - this->profile_start,
+                                                    end_timestamp - start_timestamp));
+            }
+          }
+        }
+      }
+
       return true;
     } catch (std::exception &e) {
       adaptyst_set_error(this->module_id, ("An exception has occurred: " +
@@ -1604,17 +1662,21 @@ public:
     }
 
     {
-      auto lock = std::unique_lock(this->active_regions_mutex);
-      if (this->active_regions.find(pid_tid) == this->active_regions.end()) {
-        this->active_regions[pid_tid] =
+      auto lock = std::unique_lock(this->regions_mutex);
+      if (this->regions.find(pid_tid) == this->regions.end()) {
+        this->regions[pid_tid] =
           std::unordered_map<std::string,
-                             std::pair<unsigned long long,
-                                       unsigned long long> >();
+                             std::vector<std::pair<unsigned long long,
+                                                   unsigned long long> > >();
+      }
+
+      if (this->regions[pid_tid].find(name) == this->regions[pid_tid].end()) {
+        this->regions[pid_tid][name] = std::vector<std::pair<unsigned long long,
+                                                             unsigned long long> >();
       }
 
       try {
-        this->active_regions[pid_tid][name] =
-          std::make_pair(std::stoull(timestamp_str), 0);
+        this->regions[pid_tid][name].push_back(std::make_pair(std::stoull(timestamp_str), 0));
       } catch (...) {
         return false;
       }
@@ -1633,20 +1695,17 @@ public:
     unsigned long long end_timestamp = 0;
 
     {
-      auto lock = std::unique_lock(this->active_regions_mutex);
-      if (this->active_regions.find(pid_tid) == this->active_regions.end()) {
-        this->active_regions[pid_tid] =
-          std::unordered_map<std::string,
-                             std::pair<unsigned long long,
-                                       unsigned long long> >();
-      }
-
-      if (this->active_regions[pid_tid].find(name) ==
-          this->active_regions[pid_tid].end()) {
+      auto lock = std::unique_lock(this->regions_mutex);
+      if (this->regions.find(pid_tid) == this->regions.end()) {
         return false;
       }
 
-      start_timestamp = this->active_regions[pid_tid][name].first;
+      if (this->regions[pid_tid].find(name) ==
+          this->regions[pid_tid].end()) {
+        return false;
+      }
+
+      start_timestamp = this->regions[pid_tid][name].back().first;
 
       try {
         end_timestamp = std::stoull(timestamp_str);
@@ -1654,30 +1713,7 @@ public:
         return false;
       }
 
-      this->active_regions[pid_tid][name] =
-        std::make_pair(start_timestamp, end_timestamp);
-    }
-
-    std::vector<std::string> parts;
-    boost::split(parts, pid_tid, boost::is_any_of("_"));
-
-    if (parts.size() != 2) {
-      return false;
-    }
-
-    Path module_dir(adaptyst_get_module_dir(this->module_id));
-    Path pid_tid_dir = module_dir / "walltime" / parts[0] / parts[1];
-
-    Array<std::tuple<
-      std::string, unsigned long long, unsigned long long> > regions(pid_tid_dir,
-                                                                     "regions");
-
-    if (start_timestamp - this->profile_start < 0) {
-      regions.push_back(std::make_tuple(name, 0,
-                                        end_timestamp - this->profile_start));
-    } else {
-      regions.push_back(std::make_tuple(name, start_timestamp - this->profile_start,
-                                        end_timestamp - start_timestamp));
+      this->regions[pid_tid][name].back().second = end_timestamp;
     }
 
     return true;
