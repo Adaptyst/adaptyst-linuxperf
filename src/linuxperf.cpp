@@ -1336,6 +1336,7 @@ public:
       PipeAcceptor::Factory generic_acceptor_factory;
 
       Path module_dir(adaptyst_get_module_dir(this->module_id));
+      module_dir.set_metadata<bool>("regions_only", this->regions_only);
 
       profilers.push_back({std::make_unique<Perf>(generic_acceptor_factory,
                                                   this->buf_size,
