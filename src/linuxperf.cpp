@@ -35,6 +35,8 @@ volatile const char *options[] = {
   "filter",
   "filter_mark",
   "capture_mode",
+  "regions_only",
+  "region_save_on_first",
   "perf_path",
   "perf_script_path",
 #if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
@@ -139,6 +141,24 @@ volatile const char *capture_mode_help =
 volatile const option_type capture_mode_type = STRING;
 volatile const char *capture_mode_default = "user";
 
+volatile const char *regions_only_help =
+  "Consider only code regions specified "
+  "via the Adaptyst code regionisation feature and do not "
+  "capture anything happening outside of them (default: false)";
+volatile const option_type regions_only_type = BOOL;
+volatile const bool regions_only_default = false;
+
+volatile const char *region_save_on_first_help =
+  "By default, only the second and next occurrences of "
+  "a non-off-CPU sample within a code region specified via the Adaptyst "
+  "code regionisation feature are processed. This is because "
+  "the first occurrence of the sample may cover a period before "
+  "the start of the region, resulting in overestimating a metric "
+  "corresponding to the sample. Set this option to true to "
+  "disable this behaviour. (default: false)";
+volatile const option_type region_save_on_first_type = BOOL;
+volatile const bool region_save_on_first_default = false;
+
 volatile const char *perf_path_help =
   "Path to the patched \"perf\" installation. Change it only "
   "if you know what you’re doing. Relative paths have the "
@@ -197,6 +217,8 @@ private:
   std::vector<PerfEvent> events;
   Perf::Filter filter;
   Perf::CaptureMode capture_mode;
+  bool regions_only;
+  bool region_save_on_first;
   CPUConfig cpu_config;
   fs::path perf_bin_path;
   fs::path perf_python_path;
@@ -204,6 +226,11 @@ private:
   unsigned long long profile_start;
   bool profile_start_set = false;
   amod_t module_id;
+  std::unordered_map<std::string,
+    std::unordered_map<std::string,
+                       std::pair<unsigned long long, unsigned long long> > > active_regions;
+  std::mutex active_regions_mutex;
+
 #if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
   unsigned int roofline_freq;
   fs::path roofline_benchmark_path;
@@ -337,6 +364,13 @@ private:
 
     std::unordered_map<std::string, nlohmann::json> timed_data_map;
     std::unordered_map<std::string, nlohmann::json> untimed_data_map;
+
+    std::unordered_map<std::string,
+                       std::unordered_map<std::string, nlohmann::json> > region_timed_data_map;
+    std::unordered_map<std::string,
+                       std::unordered_map<std::string, nlohmann::json> > region_untimed_data_map;
+    std::unordered_map<std::string,
+                       std::unordered_map<std::string, unsigned long long> > region_start_timestamp_map;
 
     try {
       while ((line = connection->read()) != "<STOP>") {
@@ -480,8 +514,134 @@ private:
             }
 
             Path pid_tid_dir = dir / pid / tid;
+            std::string pid_tid = pid + "_" + tid;
 
-            if (event_type == "offcpu-time") {
+            if (!this->regions_only) {
+              if (untimed_data_map.find(pid_tid) == untimed_data_map.end()) {
+                untimed_data_map[pid_tid] = nlohmann::json::object();
+                untimed_data_map[pid_tid]["name"] = "all";
+                untimed_data_map[pid_tid]["children"] = nlohmann::json::object();
+                untimed_data_map[pid_tid]["cold_value"] = 0;
+                untimed_data_map[pid_tid]["hot_value"] = 0;
+                untimed_data_map[pid_tid]["value"] = 0;
+                untimed_data_map[pid_tid]["pid"] = pid;
+                untimed_data_map[pid_tid]["tid"] = tid;
+              }
+
+              if (timed_data_map.find(pid_tid) == timed_data_map.end()) {
+                timed_data_map[pid_tid] = nlohmann::json::object();
+                timed_data_map[pid_tid]["name"] = "all";
+                timed_data_map[pid_tid]["children"] = nlohmann::json::array();
+                timed_data_map[pid_tid]["cold_value"] = 0;
+                timed_data_map[pid_tid]["hot_value"] = 0;
+                timed_data_map[pid_tid]["value"] = 0;
+                timed_data_map[pid_tid]["pid"] = pid;
+                timed_data_map[pid_tid]["tid"] = tid;
+              }
+
+              this->save_sample(&untimed_data_map[pid_tid], callchain,
+                                period, false, event_type == "offcpu-time");
+              this->save_sample(&timed_data_map[pid_tid], callchain,
+                                period, true, event_type == "offcpu-time");
+            }
+
+            std::vector<std::pair<std::string,
+                                  std::pair<unsigned long long,
+                                            unsigned long long> > > regions;
+
+            {
+              auto lock = std::unique_lock(this->active_regions_mutex);
+
+              if (this->active_regions.find(pid_tid) != this->active_regions.end()) {
+                for (auto &region : this->active_regions[pid_tid]) {
+                  regions.push_back(region);
+                }
+              }
+            }
+
+            bool at_least_one_region = false;
+
+            for (auto &region : regions) {
+              std::string name = region.first;
+              unsigned long long start_timestamp = region.second.first;
+              unsigned long long end_timestamp = region.second.second;
+
+              if (timestamp < start_timestamp ||
+                  (end_timestamp >= start_timestamp &&
+                   timestamp > end_timestamp)) {
+                continue;
+              }
+
+              at_least_one_region = true;
+
+              if (region_start_timestamp_map.find(pid_tid) ==
+                  region_start_timestamp_map.end()) {
+                region_start_timestamp_map[pid_tid] =
+                  std::unordered_map<std::string, unsigned long long>();
+              }
+
+              bool just_assigned = false;
+
+              if (region_start_timestamp_map[pid_tid].find(name) ==
+                  region_start_timestamp_map[pid_tid].end() ||
+                  region_start_timestamp_map[pid_tid][name] != start_timestamp) {
+                region_start_timestamp_map[pid_tid][name] = start_timestamp;
+                just_assigned = true;
+              }
+
+              if (event_type != "offcpu-time" &&
+                  just_assigned && !this->region_save_on_first) {
+                continue;
+              }
+
+              if (region_untimed_data_map.find(pid_tid) == region_untimed_data_map.end()) {
+                region_untimed_data_map[pid_tid] = std::unordered_map<std::string,
+                                                                      nlohmann::json>();
+              }
+
+              if (region_timed_data_map.find(pid_tid) == region_timed_data_map.end()) {
+                region_timed_data_map[pid_tid] = std::unordered_map<std::string,
+                                                                    nlohmann::json>();
+              }
+
+              if (region_untimed_data_map[pid_tid].find(name) ==
+                  region_untimed_data_map[pid_tid].end()) {
+                region_untimed_data_map[pid_tid][name] = nlohmann::json::object();
+                region_untimed_data_map[pid_tid][name]["name"] = "all";
+                region_untimed_data_map[pid_tid][name]["children"] = nlohmann::json::object();
+                region_untimed_data_map[pid_tid][name]["cold_value"] = 0;
+                region_untimed_data_map[pid_tid][name]["hot_value"] = 0;
+                region_untimed_data_map[pid_tid][name]["value"] = 0;
+                region_untimed_data_map[pid_tid][name]["pid"] = pid;
+                region_untimed_data_map[pid_tid][name]["tid"] = tid;
+              }
+
+              if (region_timed_data_map[pid_tid].find(name) ==
+                  region_timed_data_map[pid_tid].end()) {
+                region_timed_data_map[pid_tid][name] = nlohmann::json::object();
+                region_timed_data_map[pid_tid][name]["name"] = "all";
+                region_timed_data_map[pid_tid][name]["children"] = nlohmann::json::array();
+                region_timed_data_map[pid_tid][name]["cold_value"] = 0;
+                region_timed_data_map[pid_tid][name]["hot_value"] = 0;
+                region_timed_data_map[pid_tid][name]["value"] = 0;
+                region_timed_data_map[pid_tid][name]["pid"] = pid;
+                region_timed_data_map[pid_tid][name]["tid"] = tid;
+              }
+
+              this->save_sample(&region_untimed_data_map[pid_tid][name], callchain,
+                                period, false, event_type == "offcpu-time");
+              this->save_sample(&region_timed_data_map[pid_tid][name], callchain,
+                                period, true, event_type == "offcpu-time");
+
+              if (event_type == "offcpu-time" || event_type == "task-clock") {
+                pid_tid_dir.set_metadata<
+                  unsigned long long>("sampled_period_" + name,
+                                      pid_tid_dir.get_metadata<
+                                      unsigned long long>("sampled_period_" + name, 0) + period);
+              }
+            }
+
+            if (event_type == "offcpu-time" && (!this->regions_only || at_least_one_region)) {
               Array<std::pair<
                 unsigned long long, unsigned long long> > offcpu(pid_tid_dir, "offcpu");
 
@@ -493,39 +653,12 @@ private:
               }
             }
 
-            std::string pid_tid = pid + "_" + tid;
-
-            if (untimed_data_map.find(pid_tid) == untimed_data_map.end()) {
-              untimed_data_map[pid_tid] = nlohmann::json::object();
-              untimed_data_map[pid_tid]["name"] = "all";
-              untimed_data_map[pid_tid]["children"] = nlohmann::json::object();
-              untimed_data_map[pid_tid]["cold_value"] = 0;
-              untimed_data_map[pid_tid]["hot_value"] = 0;
-              untimed_data_map[pid_tid]["value"] = 0;
-              untimed_data_map[pid_tid]["pid"] = pid;
-              untimed_data_map[pid_tid]["tid"] = tid;
+            if (event_type == "offcpu-time" || event_type == "task-clock") {
+              pid_tid_dir.set_metadata<
+                unsigned long long>("sampled_period",
+                                    pid_tid_dir.get_metadata<
+                                    unsigned long long>("sampled_period", 0) + period);
             }
-
-            if (timed_data_map.find(pid_tid) == timed_data_map.end()) {
-              timed_data_map[pid_tid] = nlohmann::json::object();
-              timed_data_map[pid_tid]["name"] = "all";
-              timed_data_map[pid_tid]["children"] = nlohmann::json::array();
-              timed_data_map[pid_tid]["cold_value"] = 0;
-              timed_data_map[pid_tid]["hot_value"] = 0;
-              timed_data_map[pid_tid]["value"] = 0;
-              timed_data_map[pid_tid]["pid"] = pid;
-              timed_data_map[pid_tid]["tid"] = tid;
-            }
-
-            this->save_sample(&untimed_data_map[pid_tid], callchain,
-                              period, false, event_type == "offcpu-time");
-            this->save_sample(&timed_data_map[pid_tid], callchain,
-                              period, true, event_type == "offcpu-time");
-
-            pid_tid_dir.set_metadata<
-              unsigned long long>("sampled_period",
-                                  pid_tid_dir.get_metadata<
-                                  unsigned long long>("sampled_period", 0) + period);
           } else if (parsed["type"] == "syscall") {
             thread_tree_connection = true;
 
@@ -677,7 +810,8 @@ private:
                        "General");
       }
     } else {
-      for (auto &entry : untimed_data_map) {
+      auto process_untimed_entry = [&](std::pair<std::string, nlohmann::json> entry,
+                                       std::string output_filename_no_ext) {
         nlohmann::json &obj = entry.second;
         std::string pid = obj["pid"];
         std::string tid = obj["tid"];
@@ -709,7 +843,8 @@ private:
           elem_queue.pop_front();
         }
 
-        fs::path path = fs::path(dir.get_path_name()) / pid / tid / "untimed.json";
+        fs::path path = fs::path(dir.get_path_name()) / pid / tid /
+          (output_filename_no_ext + ".json");
         std::ofstream stream(path);
 
         if (!stream) {
@@ -722,9 +857,10 @@ private:
           throw std::runtime_error(("Could not write to " + path.string() + ". Do you have "
                                     "enough disk space?").c_str());
         }
-      }
+      };
 
-      for (auto &entry : timed_data_map) {
+      auto process_timed_entry = [&](std::pair<std::string, nlohmann::json> entry,
+                                     std::string output_filename_no_ext) {
         nlohmann::json &obj = entry.second;
         std::string pid = obj["pid"];
         std::string tid = obj["tid"];
@@ -732,7 +868,8 @@ private:
         obj.erase("pid");
         obj.erase("tid");
 
-        fs::path path = fs::path(dir.get_path_name()) / pid / tid / "timed.json";
+        fs::path path = fs::path(dir.get_path_name()) / pid / tid /
+          (output_filename_no_ext + ".json");
         std::ofstream stream(path);
 
         if (!stream) {
@@ -744,6 +881,26 @@ private:
         if (!stream) {
           throw std::runtime_error(("Could not write to " + path.string() + ". Do you have "
                                     "enough disk space?").c_str());
+        }
+      };
+
+      for (auto &entry : untimed_data_map) {
+        process_untimed_entry(entry, "untimed");
+      }
+
+      for (auto &entry : timed_data_map) {
+        process_timed_entry(entry, "timed");
+      }
+
+      for (auto &entry : region_untimed_data_map) {
+        for (auto &subentry : entry.second) {
+          process_untimed_entry(subentry, subentry.first + "_untimed");
+        }
+      }
+
+      for (auto &entry : region_timed_data_map) {
+        for (auto &subentry : entry.second) {
+          process_timed_entry(subentry, subentry.first + "_timed");
         }
       }
     }
@@ -769,6 +926,8 @@ public:
     option *filter_opt = adaptyst_get_option(this->module_id, "filter");
     option *mark_opt = adaptyst_get_option(this->module_id, "filter_mark");
     option *capture_mode_opt = adaptyst_get_option(this->module_id, "capture_mode");
+    option *regions_only_opt = adaptyst_get_option(this->module_id, "regions_only");
+    option *region_save_on_first_opt = adaptyst_get_option(this->module_id, "region_save_on_first");
     option *perf_path_opt = adaptyst_get_option(this->module_id, "perf_path");
     option *perf_script_path_opt = adaptyst_get_option(this->module_id, "perf_script_path");
 
@@ -790,6 +949,8 @@ public:
     std::string filter_str(*((const char **)filter_opt->data));
     bool mark = *(bool *)mark_opt->data;
     std::string capture_mode(*(const char **)capture_mode_opt->data);
+    bool regions_only = *(bool *)regions_only_opt->data;
+    bool region_save_on_first = *(bool * )region_save_on_first_opt->data;
 
     std::string cpu_mask(adaptyst_get_cpu_mask(this->module_id));
     CPUConfig cpu_config(cpu_mask);
@@ -1092,6 +1253,9 @@ public:
       return false;
     }
 
+    this->regions_only = regions_only;
+    this->region_save_on_first = region_save_on_first;
+
     this->cpu_config = cpu_config;
 
     fs::path perf_path(*(const char **)perf_path_opt->data);
@@ -1148,7 +1312,6 @@ public:
     }
 
     this->perf_script_path = perf_script_path;
-
     adaptyst_set_will_profile(this->module_id, true);
 
     return true;
@@ -1171,6 +1334,7 @@ public:
       PerfEvent syscall_tree;
 
       PipeAcceptor::Factory generic_acceptor_factory;
+
       Path module_dir(adaptyst_get_module_dir(this->module_id));
 
       profilers.push_back({std::make_unique<Perf>(generic_acceptor_factory,
@@ -1431,6 +1595,92 @@ public:
       return false;
     }
   }
+
+  bool region_start(std::string name, std::string pid_tid,
+                    std::string timestamp_str) {
+    if (timestamp_str == "-1") {
+      return false;
+    }
+
+    {
+      auto lock = std::unique_lock(this->active_regions_mutex);
+      if (this->active_regions.find(pid_tid) == this->active_regions.end()) {
+        this->active_regions[pid_tid] =
+          std::unordered_map<std::string,
+                             std::pair<unsigned long long,
+                                       unsigned long long> >();
+      }
+
+      try {
+        this->active_regions[pid_tid][name] =
+          std::make_pair(std::stoull(timestamp_str), 0);
+      } catch (...) {
+        return false;
+      }
+
+      return true;
+    }
+  }
+
+  bool region_end(std::string name, std::string pid_tid,
+                  std::string timestamp_str) {
+    if (timestamp_str == "-1") {
+      return false;
+    }
+
+    unsigned long long start_timestamp = 0;
+    unsigned long long end_timestamp = 0;
+
+    {
+      auto lock = std::unique_lock(this->active_regions_mutex);
+      if (this->active_regions.find(pid_tid) == this->active_regions.end()) {
+        this->active_regions[pid_tid] =
+          std::unordered_map<std::string,
+                             std::pair<unsigned long long,
+                                       unsigned long long> >();
+      }
+
+      if (this->active_regions[pid_tid].find(name) ==
+          this->active_regions[pid_tid].end()) {
+        return false;
+      }
+
+      start_timestamp = this->active_regions[pid_tid][name].first;
+
+      try {
+        end_timestamp = std::stoull(timestamp_str);
+      } catch (...) {
+        return false;
+      }
+
+      this->active_regions[pid_tid][name] =
+        std::make_pair(start_timestamp, end_timestamp);
+    }
+
+    std::vector<std::string> parts;
+    boost::split(parts, pid_tid, boost::is_any_of("_"));
+
+    if (parts.size() != 2) {
+      return false;
+    }
+
+    Path module_dir(adaptyst_get_module_dir(this->module_id));
+    Path pid_tid_dir = module_dir / "walltime" / parts[0] / parts[1];
+
+    Array<std::tuple<
+      std::string, unsigned long long, unsigned long long> > regions(pid_tid_dir,
+                                                                     "regions");
+
+    if (start_timestamp - this->profile_start < 0) {
+      regions.push_back(std::make_tuple(name, 0,
+                                        end_timestamp - this->profile_start));
+    } else {
+      regions.push_back(std::make_tuple(name, start_timestamp - this->profile_start,
+                                        end_timestamp - start_timestamp));
+    }
+
+    return true;
+  }
 };
 
 CPULinuxModule *CPULinuxModule::instance = nullptr;
@@ -1459,5 +1709,19 @@ extern "C" {
 
   void adaptyst_module_close(amod_t module_id) {
     delete CPULinuxModule::instance;
+  }
+
+  bool adaptyst_region_start(amod_t module_id, const char *name,
+                             const char *part_id, const char *timestamp_str) {
+    return CPULinuxModule::instance->region_start(std::string(name),
+                                                  std::string(part_id),
+                                                  std::string(timestamp_str));
+  }
+
+  bool adaptyst_region_end(amod_t module_id, const char *name,
+                           const char *part_id, const char *timestamp_str) {
+    return CPULinuxModule::instance->region_end(std::string(name),
+                                                std::string(part_id),
+                                                std::string(timestamp_str));
   }
 }
