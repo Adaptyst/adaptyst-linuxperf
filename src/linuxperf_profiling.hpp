@@ -162,20 +162,6 @@ namespace adaptyst {
                        bool capture_immediately) = 0;
 
     /**
-       Resumes event capturing by the profiler.
-
-       This is used for implementing partial profiling of the command.
-    */
-    virtual void resume() = 0;
-
-    /**
-       Pauses event capturing by the profiler.
-
-       This is used for implementing partial profiling of the command.
-    */
-    virtual void pause() = 0;
-
-    /**
        Waits for the profiler to finish executing and returns its exit code.
     */
     virtual int wait() = 0;
@@ -297,8 +283,6 @@ namespace adaptyst {
     void start(pid_t pid,
                bool capture_immediately);
     unsigned int get_thread_count();
-    void resume();
-    void pause();
     int wait();
     std::vector<std::unique_ptr<Requirement> > &get_requirements();
   };

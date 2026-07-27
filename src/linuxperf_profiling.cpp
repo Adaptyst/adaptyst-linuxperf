@@ -582,14 +582,6 @@ namespace adaptyst {
     }
   }
 
-  void Perf::resume() {
-    // TODO
-  }
-
-  void Perf::pause() {
-    // TODO
-  }
-
   int Perf::wait() {
     return this->process.get();
   }
