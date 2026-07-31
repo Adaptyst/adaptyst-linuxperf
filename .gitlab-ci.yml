@@ -1,10 +1,11 @@
-# SPDX-FileCopyrightText: 2025 CERN
+# SPDX-FileCopyrightText: 2026 CERN
 # SPDX-License-Identifier: GPL-2.0-only
 
 workflow:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "external_pull_request_event" || $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "web"
     - if: $CI_COMMIT_TAG != null
+    - if: $CI_COMMIT_BRANCH == "dev"
 
 stages:
   - licensing-check
@@ -15,5 +16,4 @@ reuse-lint:
     entrypoint: [""]
   stage: licensing-check
   script:
-    - cd $CI_PROJECT_DIR
     - reuse lint
