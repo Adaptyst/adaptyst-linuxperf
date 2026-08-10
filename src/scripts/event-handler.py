@@ -51,6 +51,7 @@ dso_dict = defaultdict(set)
 overall_event_type = None
 perf_maps = {}
 filter_settings = None
+include_adaptyst_overhead = False
 
 
 def get_next_event_stream():
@@ -150,7 +151,11 @@ def find_in_map(map_path, map_id, ip):
 
 
 def trace_begin():
-    global event_streams, frontend_stream, filter_settings
+    global event_streams, frontend_stream, filter_settings, \
+        include_adaptyst_overhead
+
+    include_adaptyst_overhead = \
+        True if os.environ['ADAPTYST_INCLUDE_OVERHEAD'] == '1' else False
 
     connect = os.environ['ADAPTYST_CONNECT'].split(' ')
     frontend_parts = connect[1].split('_')
@@ -238,7 +243,8 @@ def process_callchain_elem(elem):
 
 
 def process_event(param_dict):
-    global event_stream_dict, overall_event_type, perf_map_paths
+    global event_stream_dict, overall_event_type, perf_map_paths, \
+        include_adaptyst_overhead
 
     event_type = param_dict['ev_name']
     comm = param_dict['comm']
@@ -257,6 +263,11 @@ def process_event(param_dict):
             overall_event_type = parsed_event_type
 
     callchain_tmp = tuple(map(process_callchain_elem, raw_callchain))
+
+    if not include_adaptyst_overhead:
+        for (_, dso), _ in callchain_tmp:
+            if dso.endswith('/libadaptyst_inject.so'):
+                return
 
     if filter_settings is None:
         callchain = [(symbol_dict[s], o) for s, o

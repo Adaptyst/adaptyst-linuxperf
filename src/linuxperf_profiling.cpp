@@ -311,8 +311,9 @@ namespace adaptyst {
              CPUConfig &cpu_config,
              std::string name,
              CaptureMode capture_mode,
-             Filter filter) : Profiler(acceptor_factory, buf_size),
-                                          cpu_config(cpu_config) {
+             Filter filter,
+             bool include_adaptyst_overhead) : Profiler(acceptor_factory, buf_size),
+                                               cpu_config(cpu_config) {
     this->perf_bin_path = perf_bin_path;
     this->perf_python_path = perf_python_path;
     this->perf_script_path = perf_script_path;
@@ -321,6 +322,7 @@ namespace adaptyst {
     this->max_stack = 1024;
     this->capture_mode = capture_mode;
     this->filter = filter;
+    this->include_adaptyst_overhead = include_adaptyst_overhead;
 
     this->requirements.push_back(std::make_unique<PerfEventKernelSettingsReq>(this->max_stack));
     this->requirements.push_back(std::make_unique<NUMAMitigationReq>());
@@ -427,6 +429,8 @@ namespace adaptyst {
     this->script_proc->add_env("ADAPTYST_CONNECT",
                                acceptors[0]->get_type() +
                                instrs_stream.str());
+    this->script_proc->add_env("ADAPTYST_INCLUDE_OVERHEAD",
+                               this->include_adaptyst_overhead ? "1" : "0");
 
     this->script_proc->set_redirect_stdout(stdout);
     this->script_proc->set_redirect_stderr(stderr_script);

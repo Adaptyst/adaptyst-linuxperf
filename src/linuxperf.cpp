@@ -37,6 +37,7 @@ volatile const char *options[] = {
   "capture_mode",
   "regions_only",
   "region_save_on_first",
+  "include_adaptyst_overhead",
   "perf_path",
   "perf_script_path",
 #if defined(ADAPTYST_ROOFLINE) && defined(BOOST_ARCH_X86) && defined(BOOST_COMP_GNUC)
@@ -159,6 +160,14 @@ volatile const char *region_save_on_first_help =
 volatile const option_type region_save_on_first_type = BOOL;
 volatile const bool region_save_on_first_default = false;
 
+volatile const char *include_adaptyst_overhead_help =
+  "By default, data clearly related to Adaptyst overhead "
+  "(e.g. Adaptyst API calls) are ignored by "
+  "linuxperf when producing flame graphs. Set this option to true "
+  "to disable this behaviour.";
+volatile const option_type include_adaptyst_overhead_type = BOOL;
+volatile const bool include_adaptyst_overhead_default = false;
+
 volatile const char *perf_path_help =
   "Path to the patched \"perf\" installation. Change it only "
   "if you know what you’re doing. Relative paths have the "
@@ -219,6 +228,7 @@ private:
   Perf::CaptureMode capture_mode;
   bool regions_only;
   bool region_save_on_first;
+  bool include_adaptyst_overhead;
   CPUConfig cpu_config;
   fs::path perf_bin_path;
   fs::path perf_python_path;
@@ -953,6 +963,7 @@ public:
     option *capture_mode_opt = adaptyst_get_option(this->module_id, "capture_mode");
     option *regions_only_opt = adaptyst_get_option(this->module_id, "regions_only");
     option *region_save_on_first_opt = adaptyst_get_option(this->module_id, "region_save_on_first");
+    option *include_adaptyst_overhead_opt = adaptyst_get_option(this->module_id, "include_adaptyst_overhead");
     option *perf_path_opt = adaptyst_get_option(this->module_id, "perf_path");
     option *perf_script_path_opt = adaptyst_get_option(this->module_id, "perf_script_path");
 
@@ -975,7 +986,8 @@ public:
     bool mark = *(bool *)mark_opt->data;
     std::string capture_mode(*(const char **)capture_mode_opt->data);
     bool regions_only = *(bool *)regions_only_opt->data;
-    bool region_save_on_first = *(bool * )region_save_on_first_opt->data;
+    bool region_save_on_first = *(bool *)region_save_on_first_opt->data;
+    bool include_adaptyst_overhead = *(bool *)include_adaptyst_overhead_opt->data;
 
     std::string cpu_mask(adaptyst_get_cpu_mask(this->module_id));
     CPUConfig cpu_config(cpu_mask);
@@ -1281,6 +1293,8 @@ public:
     this->regions_only = regions_only;
     this->region_save_on_first = region_save_on_first;
 
+    this->include_adaptyst_overhead = include_adaptyst_overhead;
+
     this->cpu_config = cpu_config;
 
     fs::path perf_path(*(const char **)perf_path_opt->data);
@@ -1362,6 +1376,7 @@ public:
 
       Path module_dir(adaptyst_get_module_dir(this->module_id));
       module_dir.set_metadata<bool>("regions_only", this->regions_only);
+      module_dir.set_metadata<bool>("include_adaptyst_overhead", this->include_adaptyst_overhead);
 
       profilers.push_back({std::make_unique<Perf>(generic_acceptor_factory,
                                                   this->buf_size,
@@ -1386,7 +1401,8 @@ public:
                                                   main, this->cpu_config,
                                                   "On-CPU/Off-CPU profiler",
                                                   this->capture_mode,
-                                                  this->filter), walltime_dir});
+                                                  this->filter,
+                                                  this->include_adaptyst_overhead), walltime_dir});
 
       for (auto &event : this->events) {
         Path metric_dir = module_dir / event.get_name();

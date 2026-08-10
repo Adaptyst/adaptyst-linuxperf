@@ -266,6 +266,7 @@ namespace adaptyst {
     CaptureMode capture_mode;
     Filter filter;
     bool running;
+    bool include_adaptyst_overhead;
 
   public:
     Perf(Acceptor::Factory &acceptor_factory,
@@ -277,7 +278,8 @@ namespace adaptyst {
          CPUConfig &cpu_config,
          std::string name,
          CaptureMode capture_mode,
-         Filter filter);
+         Filter filter,
+         bool include_adaptyst_overhead = false);
     ~Perf() {}
     std::string get_name();
     void start(pid_t pid,
